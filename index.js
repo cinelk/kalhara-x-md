@@ -170,32 +170,58 @@ async function startBot() {
                 return;
             }
 
-            // 🎵 Song Downloader Command
+
+            // 🎵 Song Downloader Command (using asitha.top API)
             if (command === 'song' || command === 'play') {
                 if (!q) {
-                    await sock.sendMessage(sender, { text: '🎵 *කරුණාකර සින්දුවේ නම ඇතුළත් කරන්න!*\n*උදාහරණ:* `.song lelena`' }, { quoted: msg });
+                    await sock.sendMessage(sender, { text: '🎵 *කරුණාකර සින්දුවේ නම හෝ YouTube Link එක ඇතුළත් කරන්න!*\n*උදාහරණ:* `.song lelena`' }, { quoted: msg });
                     return;
                 }
 
                 await sock.sendMessage(sender, { text: `🔍 *Searching for:* _${q}_\n\n⌛ සින්දුව සෙවීම සහ ඩවුන්ලෝඩ් කිරීම සිදුකරමින් පවතී...` }, { quoted: msg });
 
                 try {
-                    // Using public APIs to fetch song details and audio stream
-                    const searchApi = await axios.get(`https://apis.davidcyriltech.my.id/youtube/search?query=${encodeURIComponent(q)}`);
-                    const video = searchApi.data?.results?.[0] || searchApi.data?.[0];
+                    let ytUrl = q;
 
-                    if (!video) {
-                        await sock.sendMessage(sender, { text: '❌ සමාවෙන්න, අදාළ ගීතය හමුවුණේ නැත.' }, { quoted: msg });
+                    // Text එකක් දුන්නොත් YouTube Search කරලා Link එක අරගන්නවා
+                    if (!q.startsWith('http://') && !q.startsWith('https://')) {
+                        const searchRes = await axios.get(`https://back.asitha.top/api/ytsearch?q=${encodeURIComponent(q)}`);
+                        const firstVideo = searchRes.data?.result?.[0] || searchRes.data?.[0];
+                        
+                        if (!firstVideo || !firstVideo.url) {
+                            await sock.sendMessage(sender, { text: '❌ සමාවෙන්න, අදාළ ගීතය හමුවුණේ නැත.' }, { quoted: msg });
+                            return;
+                        }
+                        ytUrl = firstVideo.url;
+                    }
+
+                    // asitha.top YouTube Downloader API එක කැඳවීම (fx=2 for MP3 Audio)
+                    const downloadRes = await axios.get(`https://back.asitha.top/api/ytapi1?url=${encodeURIComponent(ytUrl)}&fx=2&qu=128`);
+                    const audioData = downloadRes.data?.result || downloadRes.data;
+
+                    const downloadUrl = audioData?.dl_url || audioData?.download || audioData?.url;
+                    const title = audioData?.title || 'Downloaded Song';
+
+                    if (!downloadUrl) {
+                        await sock.sendMessage(sender, { text: '❌ ගීතයේ audio file එක ලබාගැනීමට නොහැකි විය.' }, { quoted: msg });
                         return;
                     }
 
-                    const audioApi = await axios.get(`https://apis.davidcyriltech.my.id/download/ytmp3?url=${video.url}`);
-                    const audioUrl = audioApi.data?.result?.download_url || audioApi.data?.downloadUrl;
+                    // Audio File එක WhatsApp එකට යැවීම
+                    await sock.sendMessage(sender, {
+                        audio: { url: downloadUrl },
+                        mimetype: 'audio/mp4',
+                        ptt: false,
+                        fileName: `${title}.mp3`,
+                        caption: `🎵 *${title}*\n\n> *Powered by KALHARA-X-MD*`
+                    }, { quoted: msg });
 
-                    if (!audioUrl) {
-                        await sock.sendMessage(sender, { text: '❌ ගීතයේ ઓඩියෝ ෆයිල් එක ලබාගැනීමේ දෝෂයක් ඇති විය.' }, { quoted: msg });
-                        return;
-                    }
+                } catch (apiErr) {
+                    console.error('Song download error:', apiErr);
+                    await sock.sendMessage(sender, { text: '❌ සින්දුව ඩවුන්ලෝඩ් කිරීමේදී සර්වර් දෝෂයක් ඇති විය.' }, { quoted: msg });
+                }
+                return;
+            }
 
                     // Send Audio File to WhatsApp
                     await sock.sendMessage(sender, {
