@@ -1,4 +1,80 @@
-// Messages Upsert Event (Fixing Commands Issue)
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
+const pino = require('pino');
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.static(path.join(__dirname, 'public')));
+
+let sock;
+let isSocketOpen = false;
+const authFolder = path.join(__dirname, 'auth_info');
+
+async function startBot() {
+    const { state, saveCreds } = await useMultiFileAuthState(authFolder);
+
+    sock = makeWASocket({
+        logger: pino({ level: 'silent' }),
+        printQRInTerminal: false,
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
+        },
+        browser: ["Ubuntu", "Chrome", "20.0.0"],
+        syncFullHistory: false,
+        markOnlineOnConnect: true
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect } = update;
+        
+        if (connection === 'open') {
+            isSocketOpen = true;
+            console.log('\n🎉 [SUCCESS] KALHARA-X-MD WhatsApp සමඟ සාර්ථකව සම්බන්ධ විය!\n');
+
+            try {
+                const userJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                const welcomeMsg = `
+╭───────────━━━━━━───────────╮
+│  🚀 *KALHARA-X-MD CONNECTED!* 🚀
+╰───────────━━━━━━───────────╯
+
+👋 *ආයුබෝවන්!* 
+ඔබගේ WhatsApp ගිණුම *KALHARA-X-MD* බොට් පද්ධතිය සමඟ සාර්ථකව සම්බන්ධ විය! 🎉
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚙️ *SYSTEM INFORMATION:*
+👤 *Bot Developer:* DMP • KALHARA 💎
+🤖 *Bot Name:* KALHARA-X-MD
+⚡ *Status:* Online & Ultra Fast
+📌 *Prefix:* [ . ]
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+                await sock.sendMessage(userJid, { text: welcomeMsg });
+            } catch (e) {
+                console.error('Welcome message sending failed:', e);
+            }
+
+        } else if (connection === 'close') {
+            isSocketOpen = false;
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            console.log(`සම්බන්ධතාවය නතර විය (Code: ${statusCode}). Reconnecting:`, shouldReconnect);
+            if (shouldReconnect) {
+                setTimeout(startBot, 2000);
+            }
+        } else if (connection === 'connecting') {
+            isSocketOpen = false;
+        }
+    });
+
+    // Messages Upsert Event (Commands & Downloader Logic)
     sock.ev.on('messages.upsert', async (m) => {
         try {
             const msg = m.messages[0];
@@ -17,7 +93,6 @@
 
             const sender = msg.key.remoteJid;
             
-            // Extract Message Text Properly
             const messageType = Object.keys(msg.message)[0];
             const textMessage = (
                 messageType === 'conversation' ? msg.message.conversation :
@@ -63,94 +138,111 @@
 │ 👤 *Owner:* DMP • KALHARA
 │ ⚡ *Status:* Active & Running
 │ ⚙️ *Prefix:* [ . ]
-│ 📅 *Date:* ${new Date().toLocaleDateString()}
 └──────────────────────────┘
 
 ⚡ *COMMAND CATEGORIES:*
-
   [1] 🛠️ *General Cmd List*
   [2] 👥 *Group Cmd List*
   [3] 📥 *Download Cmd List*
   [4] 🎨 *Tools & Fun List*
 
 📌 _Reply with the number (1-4) to select category!_
-📌 _ඔබට අවශ්‍ය ප්‍රවර්ගයේ අංකය Reply කරන්න!_
-
-───────────────
-*</> Powered by DMP KALHARA*
 `;
                 await sock.sendMessage(sender, { text: mainText }, { quoted: msg });
                 return;
             }
 
-            // Sub Menu Selection Logic (Replying 1, 2, 3, 4)
+            // Sub Menu Selection Logic
             if (textMessage === '1') {
-                const genText = `
-╭─── 🛠️ *GENERAL COMMANDS* ───
-│
-├ 🎀 *.alive* - Check if bot is online
-├ ⚡ *.ping* - Test latency speed
-├ ⚙️ *.settings* - Bot configuration
-├ 🔒 *.privacy* - Privacy settings
-├ 🖼️ *.getdp* - Get profile picture
-│
-╰─────────────────────────────
-> *KALHARA-X-MD System*
-`;
-                await sock.sendMessage(sender, { text: genText }, { quoted: msg });
+                await sock.sendMessage(sender, { text: '╭─── 🛠️ *GENERAL COMMANDS* ───\n├ 🎀 *.alive*\n├ ⚡ *.ping*\n╰─────────────────────────────' }, { quoted: msg });
                 return;
             }
-
             if (textMessage === '2') {
-                const groupText = `
-╭─── 👥 *GROUP COMMANDS* ───
-│
-├ 📢 *.tagall* - Tag all group members
-├ 🚫 *.ban* - Ban member from bot
-├ ✅ *.unban* - Unban member
-├ 👑 *.promote* - Promote to Admin
-├ 🔽 *.demote* - Demote from Admin
-├ 🚪 *.kick* - Remove member
-├ 🔒 *.mute* - Close group chat
-├ 🔓 *.unmute* - Open group chat
-│
-╰─────────────────────────────
-> *KALHARA-X-MD System*
-`;
-                await sock.sendMessage(sender, { text: groupText }, { quoted: msg });
+                await sock.sendMessage(sender, { text: '╭─── 👥 *GROUP COMMANDS* ───\n├ 📢 *.tagall*\n╰─────────────────────────────' }, { quoted: msg });
                 return;
             }
-
             if (textMessage === '3') {
-                const downText = `
-╭─── 📥 *DOWNLOAD COMMANDS* ───
-│
-├ 🎬 *.movie* <name> - Search & Download Movie
-├ 🎵 *.song* <name> - Download Audio / MP3
-├ 🎥 *.video* <name> - Download HD Video
-├ 📱 *.tt* <url> - TikTok Video Downloader
-├ 📘 *.fb* <url> - Facebook Video/Reel
-│
-╰─────────────────────────────
-> *KALHARA-X-MD System*
-`;
-                await sock.sendMessage(sender, { text: downText }, { quoted: msg });
+                await sock.sendMessage(sender, { text: '╭─── 📥 *DOWNLOAD COMMANDS* ───\n├ 🎵 *.song* <name>\n├ 🎬 *.movie* <name>\n╰─────────────────────────────' }, { quoted: msg });
+                return;
+            }
+            if (textMessage === '4') {
+                await sock.sendMessage(sender, { text: '╭─── 🎨 *TOOLS & FUN* ───\n├ ✂️ *.sticker*\n╰─────────────────────────────' }, { quoted: msg });
                 return;
             }
 
-            if (textMessage === '4') {
-                const toolsText = `
-╭─── 🎨 *TOOLS & FUN COMMANDS* ───
-│
-├ ✂️ *.sticker* - Convert Image to Sticker
-├ 🖼️ *.toimg* - Convert Sticker to Image
-├ 🎧 *.tomp3* - Extract Audio from Video
-├ 🔗 *.tourl* - Upload media & get public link
-│
-╰─────────────────────────────
-> *KALHARA-X-MD System*
-`;
-                await sock.sendMessage(sender, { text: toolsText }, { quoted: msg });
+            // 🎵 Song Downloader Command
+            if (command === 'song' || command === 'play') {
+                if (!q) {
+                    await sock.sendMessage(sender, { text: '🎵 *කරුණාකර සින්දුවේ නම ඇතුළත් කරන්න!*\n*උදාහරණ:* `.song lelena`' }, { quoted: msg });
+                    return;
+                }
+
+                await sock.sendMessage(sender, { text: `🔍 *Searching for:* _${q}_\n\n⌛ සින්දුව සෙවීම සහ ඩවුන්ලෝඩ් කිරීම සිදුකරමින් පවතී...` }, { quoted: msg });
+
+                try {
+                    // Using public APIs to fetch song details and audio stream
+                    const searchApi = await axios.get(`https://apis.davidcyriltech.my.id/youtube/search?query=${encodeURIComponent(q)}`);
+                    const video = searchApi.data?.results?.[0] || searchApi.data?.[0];
+
+                    if (!video) {
+                        await sock.sendMessage(sender, { text: '❌ සමාවෙන්න, අදාළ ගීතය හමුවුණේ නැත.' }, { quoted: msg });
+                        return;
+                    }
+
+                    const audioApi = await axios.get(`https://apis.davidcyriltech.my.id/download/ytmp3?url=${video.url}`);
+                    const audioUrl = audioApi.data?.result?.download_url || audioApi.data?.downloadUrl;
+
+                    if (!audioUrl) {
+                        await sock.sendMessage(sender, { text: '❌ ගීතයේ ઓඩියෝ ෆයිල් එක ලබාගැනීමේ දෝෂයක් ඇති විය.' }, { quoted: msg });
+                        return;
+                    }
+
+                    // Send Audio File to WhatsApp
+                    await sock.sendMessage(sender, {
+                        audio: { url: audioUrl },
+                        mimetype: 'audio/mp4',
+                        ptt: false,
+                        fileName: `${video.title}.mp3`,
+                        caption: `🎵 *${video.title}*\n⏱️ *Duration:* ${video.timestamp}\n🔗 *Link:* ${video.url}\n\n> *Powered by KALHARA-X-MD*`
+                    }, { quoted: msg });
+
+                } catch (apiErr) {
+                    console.error('Song download error:', apiErr);
+                    await sock.sendMessage(sender, { text: '❌ සින්දුව ඩවුන්ලෝඩ් කිරීමේදී සර්වර් දෝෂයක් ඇති විය. කරුණාකර නැවත උත්සාහ කරන්න.' }, { quoted: msg });
+                }
+                return;
+            }
+
+            // 🎬 Movie / Video Search Command
+            if (command === 'movie' || command === 'film') {
+                if (!q) {
+                    await sock.sendMessage(sender, { text: '🎬 *කරුණාකර චිත්‍රපටයේ නම ඇතුළත් කරන්න!*\n*උදාහරණ:* `.movie Spiderman`' }, { quoted: msg });
+                    return;
+                }
+                await sock.sendMessage(sender, { text: `🔍 *Searching Movie:* _${q}_\n\n⌛ තොරතුරු සෙමින් පවතී...` }, { quoted: msg });
+                await sock.sendMessage(sender, { text: `🎬 *Movie Search Results for:* ${q}\n\n📌 මෙම චිත්‍රපටයට අදාළ ලින්ක් සහ විස්තර ඉක්මනින් ලබා දෙනු ඇත.\n> *KALHARA-X-MD System*` }, { quoted: msg });
+                return;
+            }
+
+            // Tagall Command
+            if (command === 'tagall') {
+                if (!sender.endsWith('@g.us')) {
+                    await sock.sendMessage(sender, { text: '❌ මෙම කමාන්ඩ් එක භාවිතා කළ හැක්කේ ගෲප් ඇතුළත පමණි!' }, { quoted: msg });
+                    return;
+                }
+                try {
+                    const groupMetadata = await sock.groupMetadata(sender);
+                    const participants = groupMetadata.participants;
+                    let mentionText = `📢 *TAGGING ALL MEMBERS*\n\n👥 *Group:* ${groupMetadata.subject}\n\n`;
+                    let mentions = [];
+                    for (let mem of participants) {
+                        mentionText += `👉 @${mem.id.split('@')[0]}\n`;
+                        mentions.push(mem.id);
+                    }
+                    await sock.sendMessage(sender, { text: mentionText, mentions: mentions }, { quoted: msg });
+                } catch (err) {
+                    console.error(err);
+                }
                 return;
             }
 
@@ -158,3 +250,37 @@
             console.error('Message upsert error:', err);
         }
     });
+}
+
+startBot();
+
+// Express Pair Route
+app.get('/pair', async (req, res) => {
+    let phoneNumber = req.query.phone;
+    if (!phoneNumber) {
+        return res.json({ error: 'WhatsApp අංකය ඇතුළත් කර නැත!' });
+    }
+
+    phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+
+    if (!sock) {
+        return res.json({ error: 'සර්වර් එක සූදානම් වෙමින් පවතී. තත්පර කීපයකින් නැවත උත්සාහ කරන්න.' });
+    }
+
+    try {
+        if (!sock.authState.creds.registered) {
+            await new Promise((resolve) => setTimeout(resolve, 4000));
+            let code = await sock.requestPairingCode(phoneNumber);
+            code = code?.match(/.{1,4}/g)?.join("-") || code;
+            return res.json({ code: code });
+        } else {
+            return res.json({ error: 'මෙම අංකය දැනටමත් සම්බන්ධ කර ඇත!' });
+        }
+    } catch (codeErr) {
+        console.error('Pairing Code Error:', codeErr);
+        return res.json({ error: 'Pairing Code එක ලබාගැනීමට නොහැකි විය. අංකය නිවැරදිදැයි බලන්න.' });
+    }
+});
+
+app.listen(PORT, () => {
+    console.log(`\n🌐 [WEB] KALHARA-X-MD Web Server running
