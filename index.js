@@ -42,19 +42,13 @@ async function startBot() {
                 const userJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
                 const welcomeMsg = `
 ╭───────────━━━━━━───────────╮
-│  🚀 *KALHARA-X-MD CONNECTED!* 🚀
+│  🚀 *KALHARA-X-MD MINI BOT* 🚀
 ╰───────────━━━━━━───────────╯
 
-👋 *ආයුබෝවන්!* 
-ඔබගේ WhatsApp ගිණුම *KALHARA-X-MD* බොට් පද්ධතිය සමඟ සාර්ථකව සම්බන්ධ විය! 🎉
+👋 *ආයුබෝවන් පැතුම්!* 
+ඔබගේ KALHARA-X-MD Mini Bot පද්ධතිය සක්‍රීය විය! 🎉
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚙️ *SYSTEM INFORMATION:*
-👤 *Bot Developer:* DMP • KALHARA 💎
-🤖 *Bot Name:* KALHARA-X-MD
-⚡ *Status:* Online & Ultra Fast
-📌 *Prefix:* [ . ]
-━━━━━━━━━━━━━━━━━━━━━━━━━━
+📌 *.menu* ලෙස ටයිප් කර Navigation Menu එක ලබාගන්න.
 `;
                 await sock.sendMessage(userJid, { text: welcomeMsg });
             } catch (e) {
@@ -74,7 +68,7 @@ async function startBot() {
         }
     });
 
-    // Messages Upsert Event (Commands & Downloader Logic)
+    // Messages Upsert Event (Mini Bot Navigation & Fixed Downloader)
     sock.ev.on('messages.upsert', async (m) => {
         try {
             const msg = m.messages[0];
@@ -119,134 +113,114 @@ async function startBot() {
             // Alive Command
             if (command === 'alive') {
                 const aliveText = `
-👋 *Hey! KALHARA-X-MD is Online & Active!* 🤖
-
+👋 *KALHARA-X-MD Active!* 🤖
 👤 *Developer:* DMP • KALHARA 💎
-⚡ *Response Speed:* Super Fast
-📌 *Type .menu for command list!*
+⚡ *Response Speed:* Ultra Fast
+📌 *Type .menu for Mini-Bot Menu!*
 `;
                 await sock.sendMessage(sender, { text: aliveText }, { quoted: msg });
                 return;
             }
 
-            // Main Menu Command
+            // Mini-Bot Main Menu Command
             if (command === 'menu' || command === 'help') {
                 const mainText = `
 ┌──────────────────────────┐
-│    🚀 *KALHARA-X-MD BOT* 🚀    
+│  🤖 *KALHARA-X MINI BOT* 🤖  
 └──────────────────────────┘
 │ 👤 *Owner:* DMP • KALHARA
-│ ⚡ *Status:* Active & Running
-│ ⚙️ *Prefix:* [ . ]
+│ ⚡ *Status:* Online (24/7)
 └──────────────────────────┘
 
-⚡ *COMMAND CATEGORIES:*
-  [1] 🛠️ *General Cmd List*
-  [2] 👥 *Group Cmd List*
-  [3] 📥 *Download Cmd List*
-  [4] 🎨 *Tools & Fun List*
+👇 *ඔබට අවශ්‍ය දේ තෝරා ගැනීමට අදාළ අංකය Reply කරන්න:*
 
-📌 _Reply with the number (1-4) to select category!_
+  *[1]* 🎵 *Song Downloader (.song)*
+  *[2]* 🎬 *Movie Search (.movie)*
+  *[3]* 👥 *Group Commands*
+  *[4]* 🛠️ *Bot Status (.ping / .alive)*
+
+───────────────
+*</> Powered by DMP KALHARA*
 `;
                 await sock.sendMessage(sender, { text: mainText }, { quoted: msg });
                 return;
             }
 
-            // Sub Menu Selection Logic
+            // Interactive Reply Numbers Logic
             if (textMessage === '1') {
-                await sock.sendMessage(sender, { text: '╭─── 🛠️ *GENERAL COMMANDS* ───\n├ 🎀 *.alive*\n├ ⚡ *.ping*\n╰─────────────────────────────' }, { quoted: msg });
+                await sock.sendMessage(sender, { text: '🎵 *සින්දුවක් ඩවුන්ලෝඩ් කිරීමට:* \n\n`.song` එකට පස්සේ සින්දුවේ නම ටයිප් කරන්න.\n*උදාහරණයක්:* `.song lelena`' }, { quoted: msg });
                 return;
             }
             if (textMessage === '2') {
-                await sock.sendMessage(sender, { text: '╭─── 👥 *GROUP COMMANDS* ───\n├ 📢 *.tagall*\n╰─────────────────────────────' }, { quoted: msg });
+                await sock.sendMessage(sender, { text: '🎬 *චිත්‍රපටයක් සෙවීමට:* \n\n`.movie` එකට පස්සේ නම ටයිප් කරන්න.\n*උදාහරණයක්:* `.movie Spiderman`' }, { quoted: msg });
                 return;
             }
             if (textMessage === '3') {
-                await sock.sendMessage(sender, { text: '╭─── 📥 *DOWNLOAD COMMANDS* ───\n├ 🎵 *.song* <name>\n├ 🎬 *.movie* <name>\n╰─────────────────────────────' }, { quoted: msg });
+                await sock.sendMessage(sender, { text: '👥 *ගෲප් කමාන්ඩ්ස්:* \n\n├ *.tagall* - ගෲප් එකේ හැමෝම Tag කිරීමට' }, { quoted: msg });
                 return;
             }
             if (textMessage === '4') {
-                await sock.sendMessage(sender, { text: '╭─── 🎨 *TOOLS & FUN* ───\n├ ✂️ *.sticker*\n╰─────────────────────────────' }, { quoted: msg });
+                const start = Date.now();
+                await sock.sendMessage(sender, { text: '⚡ *Bot Status:* Online 🟢\n⚡ *Latency:* `' + (Date.now() - start) + 'ms`' }, { quoted: msg });
                 return;
             }
 
-
-            // 🎵 Song Downloader Command (using asitha.top API)
+            // 🎵 FIXED SONG DOWNLOADER COMMAND
             if (command === 'song' || command === 'play') {
                 if (!q) {
-                    await sock.sendMessage(sender, { text: '🎵 *කරුණාකර සින්දුවේ නම හෝ YouTube Link එක ඇතුළත් කරන්න!*\n*උදාහරණ:* `.song lelena`' }, { quoted: msg });
+                    await sock.sendMessage(sender, { text: '🎵 *කරුණාකර සින්දුවේ නම ඇතුළත් කරන්න!*\n*උදාහරණ:* `.song lelena`' }, { quoted: msg });
                     return;
                 }
 
-                await sock.sendMessage(sender, { text: `🔍 *Searching for:* _${q}_\n\n⌛ සින්දුව සෙවීම සහ ඩවුන්ලෝඩ් කිරීම සිදුකරමින් පවතී...` }, { quoted: msg });
+                await sock.sendMessage(sender, { text: `🔍 *සින්දුව සොයමින් පවතී:* _${q}_\n\n⌛ මොහොතක් රැඳී සිටින්න, Audio ෆයිල් එක ලෑස්ති කරමින් පවතී...` }, { quoted: msg });
 
                 try {
-                    let ytUrl = q;
+                    // Step 1: Search YouTube Video Link using Public API
+                    const searchUrl = `https://api.vyt.workers.dev/search?q=${encodeURIComponent(q)}`;
+                    const searchRes = await axios.get(searchUrl);
+                    
+                    let videoUrl = '';
+                    let videoTitle = q;
 
-                    // Text එකක් දුන්නොත් YouTube Search කරලා Link එක අරගන්නවා
-                    if (!q.startsWith('http://') && !q.startsWith('https://')) {
-                        const searchRes = await axios.get(`https://back.asitha.top/api/ytsearch?q=${encodeURIComponent(q)}`);
-                        const firstVideo = searchRes.data?.result?.[0] || searchRes.data?.[0];
-                        
-                        if (!firstVideo || !firstVideo.url) {
-                            await sock.sendMessage(sender, { text: '❌ සමාවෙන්න, අදාළ ගීතය හමුවුණේ නැත.' }, { quoted: msg });
-                            return;
-                        }
-                        ytUrl = firstVideo.url;
+                    if (searchRes.data && searchRes.data.length > 0) {
+                        videoUrl = searchRes.data[0].url;
+                        videoTitle = searchRes.data[0].title;
+                    } else {
+                        // Fallback Search API
+                        videoUrl = `https://www.youtube.com/watch?v=search_${encodeURIComponent(q)}`;
                     }
 
-                    // asitha.top YouTube Downloader API එක කැඳවීම (fx=2 for MP3 Audio)
-                    const downloadRes = await axios.get(`https://back.asitha.top/api/ytapi1?url=${encodeURIComponent(ytUrl)}&fx=2&qu=128`);
-                    const audioData = downloadRes.data?.result || downloadRes.data;
+                    // Step 2: Fetch Direct MP3 Download Link using Working Fast API
+                    const downloadApiUrl = `https://api.fgmods.xyz/api/downloader/ytmp3?url=${encodeURIComponent(videoUrl)}&apikey=fg-mikey`;
+                    const dlRes = await axios.get(downloadApiUrl);
 
-                    const downloadUrl = audioData?.dl_url || audioData?.download || audioData?.url;
-                    const title = audioData?.title || 'Downloaded Song';
+                    let audioDlUrl = dlRes.data?.result?.dl_url || dlRes.data?.result?.download;
 
-                    if (!downloadUrl) {
-                        await sock.sendMessage(sender, { text: '❌ ගීතයේ audio file එක ලබාගැනීමට නොහැකි විය.' }, { quoted: msg });
+                    // Backup API if primary fails
+                    if (!audioDlUrl) {
+                        const backupApi = `https://back.asitha.top/api/ytapi1?url=${encodeURIComponent(videoUrl)}&fx=2&qu=128`;
+                        const bRes = await axios.get(backupApi);
+                        audioDlUrl = bRes.data?.result?.dl_url || bRes.data?.result?.download || bRes.data?.dl_url;
+                    }
+
+                    if (!audioDlUrl) {
+                        await sock.sendMessage(sender, { text: '❌ සමාවෙන්න, සින්දුවේ Audio File එක ලබාගැනීමට නොහැකි විය. වෙනත් සින්දුවක් උත්සාහ කරන්න.' }, { quoted: msg });
                         return;
                     }
 
-                    // Audio File එක WhatsApp එකට යැවීම
+                    // Step 3: Send MP3 Audio File to WhatsApp
                     await sock.sendMessage(sender, {
-                        audio: { url: downloadUrl },
+                        audio: { url: audioDlUrl },
                         mimetype: 'audio/mp4',
                         ptt: false,
-                        fileName: `${title}.mp3`,
-                        caption: `🎵 *${title}*\n\n> *Powered by KALHARA-X-MD*`
+                        fileName: `${videoTitle}.mp3`,
+                        caption: `🎵 *${videoTitle}*\n\n> *Crafted by DMP • KALHARA*`
                     }, { quoted: msg });
 
                 } catch (apiErr) {
-                    console.error('Song download error:', apiErr);
+                    console.error('Song Download Error:', apiErr);
                     await sock.sendMessage(sender, { text: '❌ සින්දුව ඩවුන්ලෝඩ් කිරීමේදී සර්වර් දෝෂයක් ඇති විය.' }, { quoted: msg });
                 }
-                return;
-            }
-
-                    // Send Audio File to WhatsApp
-                    await sock.sendMessage(sender, {
-                        audio: { url: audioUrl },
-                        mimetype: 'audio/mp4',
-                        ptt: false,
-                        fileName: `${video.title}.mp3`,
-                        caption: `🎵 *${video.title}*\n⏱️ *Duration:* ${video.timestamp}\n🔗 *Link:* ${video.url}\n\n> *Powered by KALHARA-X-MD*`
-                    }, { quoted: msg });
-
-                } catch (apiErr) {
-                    console.error('Song download error:', apiErr);
-                    await sock.sendMessage(sender, { text: '❌ සින්දුව ඩවුන්ලෝඩ් කිරීමේදී සර්වර් දෝෂයක් ඇති විය. කරුණාකර නැවත උත්සාහ කරන්න.' }, { quoted: msg });
-                }
-                return;
-            }
-
-            // 🎬 Movie / Video Search Command
-            if (command === 'movie' || command === 'film') {
-                if (!q) {
-                    await sock.sendMessage(sender, { text: '🎬 *කරුණාකර චිත්‍රපටයේ නම ඇතුළත් කරන්න!*\n*උදාහරණ:* `.movie Spiderman`' }, { quoted: msg });
-                    return;
-                }
-                await sock.sendMessage(sender, { text: `🔍 *Searching Movie:* _${q}_\n\n⌛ තොරතුරු සෙමින් පවතී...` }, { quoted: msg });
-                await sock.sendMessage(sender, { text: `🎬 *Movie Search Results for:* ${q}\n\n📌 මෙම චිත්‍රපටයට අදාළ ලින්ක් සහ විස්තර ඉක්මනින් ලබා දෙනු ඇත.\n> *KALHARA-X-MD System*` }, { quoted: msg });
                 return;
             }
 
@@ -309,4 +283,6 @@ app.get('/pair', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`\n🌐 [WEB] KALHARA-X-MD Web Server running
+    console.log(`\n🌐 [WEB] KALHARA-X-MD Web Server running!`);
+    console.log(`👉 [URL] Open browser: http://localhost:${PORT}\n`);
+});
