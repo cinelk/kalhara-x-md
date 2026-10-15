@@ -10,6 +10,7 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(path.join(__dirname, 'public')));
 
 let sock;
+let isSocketOpen = false;
 const authFolder = path.join(__dirname, 'auth_info');
 
 async function startBot() {
@@ -31,7 +32,9 @@ async function startBot() {
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
+        
         if (connection === 'open') {
+            isSocketOpen = true;
             console.log('\n🎉 [SUCCESS] KALHARA-X-MD WhatsApp සමඟ සාර්ථකව සම්බන්ධ විය!\n');
 
             // Auto Welcome Message to Connected Number
@@ -72,12 +75,15 @@ async function startBot() {
             }
 
         } else if (connection === 'close') {
+            isSocketOpen = false;
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             console.log(`සම්බන්ධතාවය නතර විය (Code: ${statusCode}). Reconnecting:`, shouldReconnect);
             if (shouldReconnect) {
                 setTimeout(startBot, 2000);
             }
+        } else if (connection === 'connecting') {
+            isSocketOpen = false;
         }
     });
 
@@ -126,7 +132,7 @@ async function startBot() {
         if (cmd === '.menu' || cmd === '.help') {
             const mainText = `
 ┌──────────────────────────┐
-│   🚀 *KALHARA-X-MD BOT* 🚀    
+│    🚀 *KALHARA-X-MD BOT* 🚀    
 └──────────────────────────┘
 │ 👤 *Owner:* DMP • KALHARA
 │ ⚡ *Status:* Active & Running
@@ -238,7 +244,6 @@ async function startBot() {
                 return;
             }
             await sock.sendMessage(sender, { text: `🔍 *Searching for Movie:* _${args}_\n\n⌛ චිත්‍රපටය සොයමින් පවතී, සුළු මොහොතක් රැඳී සිටින්න...` }, { quoted: msg });
-            // API Search/Download Integration Point
             return;
         }
 
@@ -279,6 +284,7 @@ async function startBot() {
 
 startBot();
 
+// Express Pair Route with Delay & Robust Exception Handling
 app.get('/pair', async (req, res) => {
     let phoneNumber = req.query.phone;
     if (!phoneNumber) {
@@ -293,22 +299,18 @@ app.get('/pair', async (req, res) => {
 
     try {
         if (!sock.authState.creds.registered) {
-            setTimeout(async () => {
-                try {
-                    let code = await sock.requestPairingCode(phoneNumber);
-                    code = code?.match(/.{1,4}/g)?.join("-") || code;
-                    res.json({ code: code });
-                } catch (codeErr) {
-                    console.error('Pairing Code Error:', codeErr);
-                    res.json({ error: 'Pairing Code එක ලබාගැනීමට නොහැකි විය. අංකය නිවැරදිදැයි බලන්න.' });
-                }
-            }, 2000);
+            // Give WebSocket 4 seconds to ensure handshake is ready
+            await new Promise((resolve) => setTimeout(resolve, 4000));
+
+            let code = await sock.requestPairingCode(phoneNumber);
+            code = code?.match(/.{1,4}/g)?.join("-") || code;
+            return res.json({ code: code });
         } else {
-            res.json({ error: 'මෙම අංකය දැනටමත් සම්බන්ධ කර ඇත!' });
+            return res.json({ error: 'මෙම අංකය දැනටමත් සම්බන්ධ කර ඇත!' });
         }
-    } catch (err) {
-        console.error('Server Express Error:', err);
-        res.json({ error: 'සර්වර් අභ්‍යන්තර දෝෂයක් සිදු විය.' });
+    } catch (codeErr) {
+        console.error('Pairing Code Error:', codeErr);
+        return res.json({ error: 'Pairing Code එක ලබාගැනීමට නොහැකි විය. අංකය නිවැරදිදැයි බලන්න.' });
     }
 });
 
