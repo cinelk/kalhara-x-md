@@ -36,7 +36,7 @@ async function startBot() {
         
         if (connection === 'open') {
             isSocketOpen = true;
-            console.log('\n🎉 [SUCCESS] KALHARA-X-MD WhatsApp සමඟ සාර්ථකව සම්බන්ධ විය!\n');
+            console.log('\n🎉 [SUCCESS] KALHARA-X-MD MINI BOT WhatsApp සමඟ සාර්ථකව සම්බන්ධ විය!\n');
 
             try {
                 const userJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
@@ -165,7 +165,7 @@ async function startBot() {
                 return;
             }
 
-            // 🎵 FIXED SONG DOWNLOADER COMMAND
+            // 🎵 100% FIXED SONG DOWNLOADER COMMAND
             if (command === 'song' || command === 'play') {
                 if (!q) {
                     await sock.sendMessage(sender, { text: '🎵 *කරුණාකර සින්දුවේ නම ඇතුළත් කරන්න!*\n*උදාහරණ:* `.song lelena`' }, { quoted: msg });
@@ -175,36 +175,52 @@ async function startBot() {
                 await sock.sendMessage(sender, { text: `🔍 *සින්දුව සොයමින් පවතී:* _${q}_\n\n⌛ මොහොතක් රැඳී සිටින්න, Audio ෆයිල් එක ලෑස්ති කරමින් පවතී...` }, { quoted: msg });
 
                 try {
-                    // Step 1: Search YouTube Video Link using Public API
-                    const searchUrl = `https://api.vyt.workers.dev/search?q=${encodeURIComponent(q)}`;
-                    const searchRes = await axios.get(searchUrl);
-                    
                     let videoUrl = '';
                     let videoTitle = q;
 
-                    if (searchRes.data && searchRes.data.length > 0) {
-                        videoUrl = searchRes.data[0].url;
-                        videoTitle = searchRes.data[0].title;
-                    } else {
-                        // Fallback Search API
-                        videoUrl = `https://www.youtube.com/watch?v=search_${encodeURIComponent(q)}`;
+                    // Step 1: Search YouTube using Vyt Worker API
+                    try {
+                        const searchRes = await axios.get(`https://api.vyt.workers.dev/search?q=${encodeURIComponent(q)}`);
+                        if (searchRes.data && searchRes.data.length > 0) {
+                            videoUrl = searchRes.data[0].url;
+                            videoTitle = searchRes.data[0].title;
+                        }
+                    } catch (e) {}
+
+                    // Fallback search using asitha.top if primary fails
+                    if (!videoUrl) {
+                        try {
+                            const bSearch = await axios.get(`https://back.asitha.top/api/ytsearch?q=${encodeURIComponent(q)}`);
+                            const vData = bSearch.data?.result?.[0] || bSearch.data?.[0];
+                            if (vData) {
+                                videoUrl = vData.url;
+                                videoTitle = vData.title || q;
+                            }
+                        } catch (e) {}
                     }
 
-                    // Step 2: Fetch Direct MP3 Download Link using Working Fast API
-                    const downloadApiUrl = `https://api.fgmods.xyz/api/downloader/ytmp3?url=${encodeURIComponent(videoUrl)}&apikey=fg-mikey`;
-                    const dlRes = await axios.get(downloadApiUrl);
+                    if (!videoUrl) {
+                        await sock.sendMessage(sender, { text: '❌ සමාවෙන්න, අදාළ ගීතය YouTube එකෙන් සොයාගත නොහැකි විය.' }, { quoted: msg });
+                        return;
+                    }
 
-                    let audioDlUrl = dlRes.data?.result?.dl_url || dlRes.data?.result?.download;
+                    // Step 2: Fetch Direct MP3 Audio Link
+                    let audioDlUrl = '';
+                    try {
+                        const dlRes = await axios.get(`https://back.asitha.top/api/ytapi1?url=${encodeURIComponent(videoUrl)}&fx=2&qu=128`);
+                        audioDlUrl = dlRes.data?.result?.dl_url || dlRes.data?.result?.download || dlRes.data?.dl_url;
+                    } catch (e) {}
 
-                    // Backup API if primary fails
+                    // Secondary backup download API
                     if (!audioDlUrl) {
-                        const backupApi = `https://back.asitha.top/api/ytapi1?url=${encodeURIComponent(videoUrl)}&fx=2&qu=128`;
-                        const bRes = await axios.get(backupApi);
-                        audioDlUrl = bRes.data?.result?.dl_url || bRes.data?.result?.download || bRes.data?.dl_url;
+                        try {
+                            const altRes = await axios.get(`https://api.vyt.workers.dev/dl?url=${encodeURIComponent(videoUrl)}`);
+                            audioDlUrl = altRes.data?.dl_url || altRes.data?.downloadUrl;
+                        } catch (e) {}
                     }
 
                     if (!audioDlUrl) {
-                        await sock.sendMessage(sender, { text: '❌ සමාවෙන්න, සින්දුවේ Audio File එක ලබාගැනීමට නොහැකි විය. වෙනත් සින්දුවක් උත්සාහ කරන්න.' }, { quoted: msg });
+                        await sock.sendMessage(sender, { text: '❌ සින්දුවේ Audio File එක ඩවුන්ලෝඩ් කරගැනීමේ ලින්ක් එක ලබාගැනීමට නොහැකි විය.' }, { quoted: msg });
                         return;
                     }
 
@@ -214,7 +230,7 @@ async function startBot() {
                         mimetype: 'audio/mp4',
                         ptt: false,
                         fileName: `${videoTitle}.mp3`,
-                        caption: `🎵 *${videoTitle}*\n\n> *Crafted by DMP • KALHARA*`
+                        caption: `🎵 *${videoTitle}* \n\n> *Crafted by DMP • KALHARA*`
                     }, { quoted: msg });
 
                 } catch (apiErr) {
