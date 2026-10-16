@@ -1,5 +1,5 @@
 /**
- * KALHARA-X-MD MINI BOT (Full & Advanced Version)
+ * KALHARA-X-MD MINI BOT (Fixed & Stable Pairing Version)
  * Owner: පැතුම් කල්හාර
  */
 const {
@@ -41,6 +41,7 @@ const authFolder = path.join(__dirname, 'auth_info');
 const binDir = path.join(__dirname, 'bin');
 const tmpDir = path.join(os.tmpdir(), 'kalhara-bot');
 fs.mkdirSync(tmpDir, { recursive: true });
+fs.mkdirSync(authFolder, { recursive: true });
 
 const app = express();
 let sock = null;
@@ -296,7 +297,6 @@ async function handleMessage(msg) {
     const jid = msg.key.remoteJid;
     const pushName = msg.pushName || 'යාළුවා';
 
-    // Auto Status Seen & React
     if (jid === 'status@broadcast') {
         if (!msg.key.fromMe) {
             try {
@@ -314,7 +314,6 @@ async function handleMessage(msg) {
     const sender = jid;
     const text = getText(msg);
 
-    // View Once (.vv) handler
     if (text === '.vv') {
         try {
             const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
@@ -335,7 +334,6 @@ async function handleMessage(msg) {
         return;
     }
 
-    // Status Saver (.save)
     if (text === '.save') {
         const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
         if (quoted) {
@@ -430,25 +428,35 @@ async function handleMessage(msg) {
     }
 }
 
-// ───────── Web server & Essential Pairing Routes ─────────
+// ───────── Web server & Robust Pairing Routes ─────────
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/pair', async (req, res) => {
     const phone = String(req.query.phone || '').replace(/[^0-9]/g, '');
     if (!phone) return res.json({ error: 'WhatsApp අංකය ඇතුළත් කර නැත!' });
-    if (!sock) return res.json({ error: 'සර්වර් එක සූදානම් වෙමින් පවතී. තත්පර කීපයකින් නැවත උත්සාහ කරන්න.' });
+
+    // Wait until sock is initialized
+    let retries = 10;
+    while (!sock && retries > 0) {
+        await sleep(1000);
+        retries--;
+    }
+
+    if (!sock) {
+        return res.json({ error: 'සර්වර් එක තවමත් සූදානම් වෙමින් පවතී. තත්පර 10කින් නැවත උත්සාහ කරන්න.' });
+    }
 
     try {
         if (sock.authState.creds.registered) {
-            return res.json({ error: 'දැනටමත් සම්බන්ධ කර ඇත!' });
+            return res.json({ error: 'දැනටමත් බොට් කනෙක්ට් කර ඇත!' });
         }
-        await sleep(4000); // සර්වර් එක සම්පූර්ණයෙන්ම කනෙක්ට් වීමට ටිකක් ඉඩ දෙන්න
+        await sleep(2000);
         let code = await sock.requestPairingCode(phone);
         code = code?.match(/.{1,4}/g)?.join('-') || code;
         return res.json({ code });
     } catch (e) {
         console.error('Pairing error:', e.message);
-        return res.json({ error: 'Pairing Code එක ලබාගැනීමට නොහැකි විය. අංකය නිවැරදිදැයි බලන්න (රට කේතය සමඟ).' });
+        return res.json({ error: 'Pairing Code ලබාගැනීමේ දෝෂයක්. අංකය රටේ කේතය සමඟ නිවැරදිව ඇතුළත් කරන්න (උදා: 9477xxxxxxx).' });
     }
 });
 
