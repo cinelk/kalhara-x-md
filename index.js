@@ -1,5 +1,5 @@
 /**
- * KALHARA-X-MD MINI BOT
+ * KALHARA-X-MD MINI BOT (Full & Advanced Version)
  * Owner: පැතුම් කල්හාර
  */
 const {
@@ -60,13 +60,6 @@ function getText(msg) {
         (type === 'videoMessage' && content.videoMessage?.caption) ||
         ''
     ).trim();
-}
-
-function getQuotedText(msg) {
-    const content = normalizeMessageContent(msg.message);
-    const q = content?.extendedTextMessage?.contextInfo?.quotedMessage;
-    if (!q) return '';
-    return q.conversation || q.extendedTextMessage?.text || '';
 }
 
 function cleanName(s) {
@@ -303,7 +296,7 @@ async function handleMessage(msg) {
     const jid = msg.key.remoteJid;
     const pushName = msg.pushName || 'යාළුවා';
 
-    // Auto Status Seen
+    // Auto Status Seen & React
     if (jid === 'status@broadcast') {
         if (!msg.key.fromMe) {
             try {
