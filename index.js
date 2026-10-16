@@ -256,7 +256,7 @@ async function startBot() {
 ┃  🚀 ${BOT_NAME} ONLINE 🚀
 ┗━━━━━━━━━━━━━━━━━━━━━┛
 👋 ආයුබෝවන් ${OWNER_NAME}!
-ඔබගේ පබ්ලික් බොට් පද්ධතිය සාර්ථකව සක්‍රීය විය! 🎉`
+ඔබගේ බොට් පද්ධතිය සාර්ථකව සක්‍රීය විය! 🎉`
                     });
                     await sock.sendMessage(userJid, {
                         audio: { url: 'https://www.learningcontainer.com/wp-content/uploads/2020/02/Kalimba.mp3' },
@@ -442,7 +442,7 @@ app.get('/pair', async (req, res) => {
         if (sock.authState.creds.registered) {
             return res.json({ error: 'දැනටමත් සම්බන්ධ කර ඇත!' });
         }
-        await sleep(3000);
+        await sleep(4000); // සර්වර් එක සම්පූර්ණයෙන්ම කනෙක්ට් වීමට ටිකක් ඉඩ දෙන්න
         let code = await sock.requestPairingCode(phone);
         code = code?.match(/.{1,4}/g)?.join('-') || code;
         return res.json({ code });
