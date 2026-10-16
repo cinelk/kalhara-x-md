@@ -1,11 +1,6 @@
 /**
- * KALHARA-X-MD MINI BOT (yt-dlp version)
- * Commands: .song / .play, .video / .mp4, .movie, .menu, .ping, .alive, .tagall
- *
- * .song lelena            -> සින්දුව search කරලා audio එක එවනවා
- * .song <youtube url>     -> ඒ link එකේ audio එක එවනවා
- * .video cctv song        -> video එක search කරලා එවනවා
- * .video <youtube url>    -> ඒ link එකේ video එක එවනවා
+ * KALHARA-X-MD MINI BOT (Advanced & Fast Version)
+ * Owner: පැතුම් කල්හාර (Pathum Kalhara)
  */
 const {
     default: makeWASocket,
@@ -14,7 +9,8 @@ const {
     makeCacheableSignalKeyStore,
     fetchLatestBaileysVersion,
     normalizeMessageContent,
-    getContentType
+    getContentType,
+    downloadMediaMessage
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const express = require('express');
@@ -25,16 +21,18 @@ const axios = require('axios');
 const yts = require('yt-search');
 const { execFile } = require('child_process');
 
-// ───────── Config ─────────
+// ───────── Config & Personalization ─────────
 const PREFIX = '.';
 const PORT = process.env.PORT || 3000;
+const OWNER_NAME = 'පැතුම් කල්හාර';
+const BOT_NAME = 'KALHARA-X-MD';
 const AUTO_STATUS_SEEN = true;
-const AUTO_STATUS_REACT = false;
-const MAX_DURATION_SEC = 20 * 60;      // විනාඩි 20ට වැඩි ඒවා skip
+const AUTO_STATUS_REACT = true;
+const MAX_DURATION_SEC = 20 * 60;
 const MAX_AUDIO_MB = 60;
 const MAX_VIDEO_MB = 64;
 const MENU_TAG = 'KALHARA-X MINI BOT';
-const COOKIES_FILE = path.join(__dirname, 'cookies.txt'); // optional (YouTube block වුණොත්)
+const COOKIES_FILE = path.join(__dirname, 'cookies.txt');
 
 const authFolder = path.join(__dirname, 'auth_info');
 const binDir = path.join(__dirname, 'bin');
@@ -48,7 +46,6 @@ let YTDLP = 'yt-dlp';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// ───────── Helpers ─────────
 function getText(msg) {
     const content = normalizeMessageContent(msg.message);
     if (!content) return '';
@@ -94,7 +91,6 @@ function run(cmd, args, opts = {}) {
     });
 }
 
-// ───────── yt-dlp setup (auto download if missing) ─────────
 async function ensureYtDlp() {
     try {
         const v = await run(YTDLP, ['--version'], { timeout: 20000 });
@@ -108,22 +104,13 @@ async function ensureYtDlp() {
     if (!fs.existsSync(local)) {
         const file = process.arch === 'arm64' ? 'yt-dlp_linux_aarch64' : 'yt-dlp_linux';
         const url = `https://github.com/yt-dlp/yt-dlp/releases/latest/download/${file}`;
-        console.log('⬇️  yt-dlp බාගත කරමින්...', url);
         const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 120000, maxRedirects: 10 });
         fs.writeFileSync(local, Buffer.from(res.data));
         fs.chmodSync(local, 0o755);
     }
     YTDLP = local;
-
-    try {
-        await run(YTDLP, ['-U'], { timeout: 60000 }); // update (standalone binary only)
-    } catch (_) {}
-
-    const v = await run(YTDLP, ['--version'], { timeout: 20000 });
-    console.log('✅ yt-dlp ready:', v.trim());
 }
 
-// ───────── Resolve query / URL -> video info ─────────
 const YT_RE = /(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|music\.youtube\.com\/watch\?(?:.*&)?v=)([\w-]{11})/i;
 const URL_RE = /^https?:\/\/\S+$/i;
 
@@ -138,14 +125,12 @@ async function resolveVideo(q) {
         return { title: id, url: `https://www.youtube.com/watch?v=${id}`, timestamp: '', seconds: 0, thumbnail: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, author: { name: '' } };
     }
     if (URL_RE.test(q)) {
-        // YouTube නොවන link (facebook, tiktok, ...) - yt-dlp support කරනවා නම් වැඩ කරයි
         return { title: 'Media', url: q, timestamp: '', seconds: 0, thumbnail: null, author: { name: '' } };
     }
     const search = await yts(q);
     return search.videos.find((v) => v.seconds > 0 && v.seconds <= MAX_DURATION_SEC) || null;
 }
 
-// ───────── Download with yt-dlp ─────────
 async function download(url, kind) {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const outTpl = path.join(tmpDir, `${id}.%(ext)s`);
@@ -161,7 +146,6 @@ async function download(url, kind) {
     if (kind === 'audio') {
         args.push('-f', 'bestaudio[ext=m4a]/bestaudio');
     } else {
-        // ffmpeg නැතුවත් වැඩ කරන single-file mp4 (≤480p)
         args.push('-f', 'best[height<=480][ext=mp4]/best[ext=mp4]/best[height<=480]/best');
     }
     if (fs.existsSync(COOKIES_FILE)) args.push('--cookies', COOKIES_FILE);
@@ -171,7 +155,6 @@ async function download(url, kind) {
         await run(YTDLP, args, { timeout: 5 * 60 * 1000 });
     } catch (e) {
         const err = e.stderr || e.message || '';
-        console.error('yt-dlp error:', err.slice(0, 600));
         const ex = new Error(err);
         ex.blocked = /Sign in to confirm|not a bot|HTTP Error 403|429|Too Many Requests/i.test(err);
         ex.tooBig = /larger than max-filesize|File is larger/i.test(err);
@@ -181,50 +164,45 @@ async function download(url, kind) {
     const file = fs.readdirSync(tmpDir).find((f) => f.startsWith(id + '.') && !f.endsWith('.part'));
     if (!file) {
         const ex = new Error('output file not found');
-        ex.tooBig = true; // max-filesize නිසා skip වුණා වෙන්න පුළුවන්
+        ex.tooBig = true;
         throw ex;
     }
     return path.join(tmpDir, file);
 }
 
-function errorText(err, what) {
-    if (err.blocked) {
-        return `❌ YouTube මේ server එක block කරලා (bot check). \n\n💡 Colab/datacenter IP වලදී මේක සාමාන්‍යයි. cookies.txt එකක් දාන්න, නැත්නම් Railway/VPS/Termux එකක run කරන්න.`;
-    }
-    if (err.tooBig) {
-        return `❌ ${what} එක ඉතා විශාලයි (WhatsApp limit එකට වඩා). කෙටි එකක් උත්සාහ කරන්න.`;
-    }
-    return `❌ ${what} ඩවුන්ලෝඩ් කිරීමේදී දෝෂයක් ඇති විය.`;
+// Universal Downloader for Social Media (Cobalt / APIs)
+async function downloadSocialMedia(url) {
+    try {
+        const res = await axios.post('https://co.wuk.sh/api/json', {
+            url: url,
+            vQuality: '720'
+        }, {
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+            timeout: 30000
+        });
+        if (res.data && (res.data.url || res.data.picker)) {
+            return res.data.url || res.data.picker[0].url;
+        }
+    } catch (_) {}
+    return null;
 }
 
-// ───────── .song / .play ─────────
-async function handleSong(sender, msg, q) {
+// ───────── Command Handlers ─────────
+async function handleSong(sender, msg, q, pushName) {
     if (!q) {
-        return sock.sendMessage(sender, { text: '🎵 *සින්දුවේ නම හෝ YouTube link එක දෙන්න!*\n*උදාහරණ:*\n`.song lelena`\n`.song https://youtu.be/xxxxxxxxxxx`' }, { quoted: msg });
+        return sock.sendMessage(sender, { text: `🎵 *කරුණාකර සින්දුවේ නම හෝ YouTube link එක දෙන්න ${pushName}!*` }, { quoted: msg });
     }
-    await sock.sendMessage(sender, { text: `🔍 *සොයමින්:* _${q}_` }, { quoted: msg });
-
+    await sock.sendMessage(sender, { text: `🔍 *සොයමින් පවතී:* _${q}_` }, { quoted: msg });
     let file;
     try {
         const video = await resolveVideo(q);
-        if (!video) {
-            return sock.sendMessage(sender, { text: '❌ සින්දුව සොයාගත නොහැකි විය (නැත්නම් ඉතා දිගයි).' }, { quoted: msg });
-        }
-        if (video.seconds && video.seconds > MAX_DURATION_SEC) {
-            return sock.sendMessage(sender, { text: '❌ මේ වීඩියෝව ඉතා දිගයි (විනාඩි 20ට වඩා).' }, { quoted: msg });
-        }
+        if (!video) return sock.sendMessage(sender, { text: '❌ සින්දුව සොයාගත නොහැකි විය.' }, { quoted: msg });
 
-        const info = `🎵 *${video.title}*\n${video.timestamp ? `⏱️ ${video.timestamp}\n` : ''}${video.author?.name ? `👤 ${video.author.name}\n` : ''}\n⬇️ Audio එක ඩවුන්ලෝඩ් වෙමින් පවතී...`;
+        const info = `┏━━━━━━━━━━━━━━━━━━━━━┓\n┃ 🎵 *${video.title}*\n┗━━━━━━━━━━━━━━━━━━━━━┛\n⏱️ ${video.timestamp || 'N/A'}\n👤 ${ownerMsg(pushName)}`;
         if (video.thumbnail) {
-            await sock.sendMessage(sender, { image: { url: video.thumbnail }, caption: info }, { quoted: msg }).catch(() =>
-                sock.sendMessage(sender, { text: info }, { quoted: msg })
-            );
-        } else {
-            await sock.sendMessage(sender, { text: info }, { quoted: msg });
+            await sock.sendMessage(sender, { image: { url: video.thumbnail }, caption: info }, { quoted: msg }).catch(() => {});
         }
-
         file = await download(video.url, 'audio');
-
         await sock.sendMessage(sender, {
             audio: { url: file },
             mimetype: 'audio/mp4',
@@ -232,75 +210,38 @@ async function handleSong(sender, msg, q) {
             fileName: `${cleanName(video.title)}.m4a`
         }, { quoted: msg });
     } catch (err) {
-        console.error('Song error:', err.message);
-        await sock.sendMessage(sender, { text: errorText(err, 'සින්දුව') }, { quoted: msg });
+        await sock.sendMessage(sender, { text: '❌ සින්දුව ඩවුන්ලෝඩ් කිරීමේදී දෝෂයක් ඇති විය.' }, { quoted: msg });
     } finally {
         safeUnlink(file);
     }
 }
 
-// ───────── .video / .mp4 ─────────
-async function handleVideo(sender, msg, q) {
+async function handleVideo(sender, msg, q, pushName) {
     if (!q) {
-        return sock.sendMessage(sender, { text: '🎬 *වීඩියෝවේ නම හෝ link එක දෙන්න!*\n*උදාහරණ:*\n`.video cctv song`\n`.video https://youtu.be/xxxxxxxxxxx`' }, { quoted: msg });
+        return sock.sendMessage(sender, { text: `🎬 *කරුණාකර වීඩියෝවේ නම හෝ link එක දෙන්න ${pushName}!*` }, { quoted: msg });
     }
-    await sock.sendMessage(sender, { text: `🔍 *වීඩියෝව සොයමින්:* _${q}_\n⌛ සූදානම් කරමින් පවතී...` }, { quoted: msg });
-
+    await sock.sendMessage(sender, { text: `🔍 *වීඩියෝව සූදානම් කරමින් පවතී...*` }, { quoted: msg });
     let file;
     try {
         const video = await resolveVideo(q);
-        if (!video) {
-            return sock.sendMessage(sender, { text: '❌ වීඩියෝව සොයාගත නොහැකි විය (නැත්නම් ඉතා දිගයි).' }, { quoted: msg });
-        }
-        if (video.seconds && video.seconds > MAX_DURATION_SEC) {
-            return sock.sendMessage(sender, { text: '❌ මේ වීඩියෝව ඉතා දිගයි (විනාඩි 20ට වඩා).' }, { quoted: msg });
-        }
+        if (!video) return sock.sendMessage(sender, { text: '❌ වීඩියෝව සොයාගත නොහැකි විය.' }, { quoted: msg });
 
         file = await download(video.url, 'video');
-
         await sock.sendMessage(sender, {
             video: { url: file },
             mimetype: 'video/mp4',
             fileName: `${cleanName(video.title)}.mp4`,
-            caption: `🎬 *${video.title}*\n${video.timestamp ? `⏱️ ${video.timestamp}\n` : ''}\n> *Powered by KALHARA-X-MD*`
+            caption: `┏━━━━━━━━━━━━━━━━━━━━━┓\n┃ 🎬 *${video.title}*\n┗━━━━━━━━━━━━━━━━━━━━━┛\n> Creator: ${OWNER_NAME}`
         }, { quoted: msg });
     } catch (err) {
-        console.error('Video error:', err.message);
-        await sock.sendMessage(sender, { text: errorText(err, 'වීඩියෝව') }, { quoted: msg });
+        await sock.sendMessage(sender, { text: '❌ වීඩියෝව ඩවුන්ලෝඩ් කිරීමේදී දෝෂයක් ඇති විය.' }, { quoted: msg });
     } finally {
         safeUnlink(file);
     }
 }
 
-// ───────── .movie (iTunes API) ─────────
-async function handleMovie(sender, msg, q) {
-    if (!q) {
-        return sock.sendMessage(sender, { text: '🎬 *චිත්‍රපටයේ නම ඇතුළත් කරන්න!*\n*උදාහරණ:* `.movie Spiderman`' }, { quoted: msg });
-    }
-    try {
-        const r = await axios.get('https://itunes.apple.com/search', {
-            params: { term: q, media: 'movie', limit: 3 },
-            timeout: 15000
-        });
-        const list = r.data?.results || [];
-        if (!list.length) {
-            return sock.sendMessage(sender, { text: '❌ චිත්‍රපටය සොයාගත නොහැකි විය.' }, { quoted: msg });
-        }
-        for (const m of list) {
-            const year = m.releaseDate ? m.releaseDate.slice(0, 4) : 'N/A';
-            const desc = (m.longDescription || m.shortDescription || '').slice(0, 400);
-            const caption = `🎬 *${m.trackName}* (${year})\n🎭 ${m.primaryGenreName || 'N/A'}\n🔞 ${m.contentAdvisoryRating || 'N/A'}\n\n📝 ${desc}`;
-            const poster = (m.artworkUrl100 || '').replace('100x100', '600x600');
-            if (poster) {
-                await sock.sendMessage(sender, { image: { url: poster }, caption }, { quoted: msg });
-            } else {
-                await sock.sendMessage(sender, { text: caption }, { quoted: msg });
-            }
-        }
-    } catch (err) {
-        console.error('Movie error:', err.message);
-        await sock.sendMessage(sender, { text: '❌ චිත්‍රපට සෙවීමේදී දෝෂයක් ඇති විය.' }, { quoted: msg });
-    }
+function ownerMsg(pushName) {
+    return `🤖 Bot Owner: ${OWNER_NAME} | User: ${pushName}`;
 }
 
 // ───────── Bot Core ─────────
@@ -320,7 +261,7 @@ async function startBot() {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
             },
-            browser: ['Ubuntu', 'Chrome', '20.0.0'],
+            browser: [BOT_NAME, 'Chrome', '20.0.0'],
             syncFullHistory: false,
             markOnlineOnConnect: true
         });
@@ -329,27 +270,29 @@ async function startBot() {
 
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect } = update;
-
             if (connection === 'open') {
-                console.log('\n🎉 [SUCCESS] KALHARA-X-MD MINI BOT WhatsApp සමඟ සාර්ථකව සම්බන්ධ විය!\n');
+                console.log('\n🎉 [SUCCESS] Bot Connected Successfully!\n');
                 try {
                     const userJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                    // Connected Image Poster
                     await sock.sendMessage(userJid, {
-                        text:
-`╭───────────━━━━━━───────────╮
-│  🚀 KALHARA-X-MD MINI BOT 🚀
-╰───────────━━━━━━───────────╯
-
-👋 ආයුබෝවන්!
-ඔබගේ KALHARA-X-MD Mini Bot පද්ධතිය සක්‍රීය විය! 🎉
-
-📌 .menu ලෙස ටයිප් කර Menu එක ලබාගන්න.`
+                        image: { url: 'https://i.postimg.cc/MKSL3Y0k/96032.png' },
+                        caption: 
+`┏━━━━━━━━━━━━━━━━━━━━━┓
+┃  🚀 ${BOT_NAME} ONLINE 🚀
+┗━━━━━━━━━━━━━━━━━━━━━┛
+👋 ආයුබෝවන් ${OWNER_NAME}!
+ඔබගේ පබ්ලික් බොට් පද්ධතිය සාර්ථකව සක්‍රීය විය! 🎉`
+                    });
+                    // Voice Note greeting
+                    await sock.sendMessage(userJid, {
+                        audio: { url: 'https://www.learningcontainer.com/wp-content/uploads/2020/02/Kalimba.mp3' },
+                        mimetype: 'audio/mp4',
+                        ptt: true
                     });
                 } catch (e) {}
             } else if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-                console.log(`සම්බන්ධතාවය නතර විය (Code: ${statusCode}). Reconnecting: ${shouldReconnect}`);
                 if (statusCode === DisconnectReason.loggedOut) {
                     try { fs.rmSync(authFolder, { recursive: true, force: true }); } catch (_) {}
                 }
@@ -369,10 +312,8 @@ async function startBot() {
             }
         });
     } catch (e) {
-        console.error('startBot error:', e);
         starting = false;
         setTimeout(startBot, 5000);
-        return;
     }
     starting = false;
 }
@@ -380,22 +321,73 @@ async function startBot() {
 async function handleMessage(msg) {
     if (!msg || !msg.message) return;
     const jid = msg.key.remoteJid;
+    const pushName = msg.pushName || 'යාළුවා';
 
+    // Auto Status Seen & React
     if (jid === 'status@broadcast') {
-        if (msg.key.fromMe) return;
-        try {
-            if (AUTO_STATUS_SEEN) await sock.readMessages([msg.key]);
-            if (AUTO_STATUS_REACT && msg.key.participant) {
-                await sock.sendMessage('status@broadcast', {
-                    react: { text: '💚', key: msg.key }
-                }, { statusJidList: [msg.key.participant] });
-            }
-        } catch (_) {}
+        if (!msg.key.fromMe) {
+            try {
+                if (AUTO_STATUS_SEEN) await sock.readMessages([msg.key]);
+                if (AUTO_STATUS_REACT && msg.key.participant) {
+                    await sock.sendMessage('status@broadcast', {
+                        react: { text: '💚', key: msg.key }
+                    }, { statusJidList: [msg.key.participant] });
+                }
+            } catch (_) {}
+        }
         return;
     }
 
     const sender = jid;
     const text = getText(msg);
+
+    // View Once (.vv) handler
+    const content = normalizeMessageContent(msg.message);
+    const isViewOnce = content?.imageMessage?.viewOnce || content?.videoMessage?.viewOnce || 
+                       content?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage?.viewOnce;
+
+    if (text === '.vv' && isViewOnce) {
+        try {
+            const quotedMsg = msg.message.extendedTextMessage.contextInfo.quotedMessage;
+            const targetMsg = { key: { remoteJid: jid, id: msg.message.extendedTextMessage.contextInfo.stanzaId, participant: msg.message.extendedTextMessage.contextInfo.participant }, message: quotedMsg };
+            const mediaBuffer = await downloadMediaMessage(targetMsg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+            const ownerJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+            
+            if (quotedMsg.imageMessage) {
+                await sock.sendMessage(ownerJid, { image: mediaBuffer, caption: `📥 *Saved View Once Photo*\n👤 From: ${pushName}\n💎 Owner: ${OWNER_NAME}` });
+            } else if (quotedMsg.videoMessage) {
+                await sock.sendMessage(ownerJid, { video: mediaBuffer, caption: `📥 *Saved View Once Video*\n👤 From: ${pushName}\n💎 Owner: ${OWNER_NAME}` });
+            }
+            await sock.sendMessage(sender, { text: `✅ View Once මීඩියා එක ${OWNER_NAME} වෙත සාර්ථකව යවන ලදී!` }, { quoted: msg });
+        } catch (e) {
+            await sock.sendMessage(sender, { text: '❌ View Once ලබාගැනීමේ දෝෂයක්.' }, { quoted: msg });
+        }
+        return;
+    }
+
+    // .save handler for Status downloading
+    if (text === '.save') {
+        const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+        if (quoted) {
+            try {
+                const targetMsg = { key: { remoteJid: 'status@broadcast', id: msg.message.extendedTextMessage.contextInfo.stanzaId, participant: msg.message.extendedTextMessage.contextInfo.participant }, message: quoted };
+                const buffer = await downloadMediaMessage(targetMsg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+                const ownerJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                if (quoted.imageMessage) {
+                    await sock.sendMessage(ownerJid, { image: buffer, caption: `📌 *Saved Status from ${pushName}*\n🤖 ${BOT_NAME}` });
+                } else if (quoted.videoMessage) {
+                    await sock.sendMessage(ownerJid, { video: buffer, caption: `📌 *Saved Status from ${pushName}*\n🤖 ${BOT_NAME}` });
+                }
+                await sock.sendMessage(sender, { text: `✅ ස්ටේටස් එක ${OWNER_NAME} වෙත යවන ලදී!` }, { quoted: msg });
+            } catch (e) {
+                await sock.sendMessage(sender, { text: '❌ ස්ටේටස් ඩවුන්ලෝඩ් කරගත නොහැකි විය.' }, { quoted: msg });
+            }
+        } else {
+            await sock.sendMessage(sender, { text: '⚠️ ස්ටේටස් එකක් Reply කර `.save` ලෙස එවන්න.' }, { quoted: msg });
+        }
+        return;
+    }
+
     if (!text) return;
 
     const isCmd = text.startsWith(PREFIX);
@@ -403,16 +395,18 @@ async function handleMessage(msg) {
     const command = isCmd ? (parts.shift() || '').toLowerCase() : '';
     const q = isCmd ? parts.join(' ') : '';
 
-    // Menu reply numbers
-    if (!isCmd && /^[1-5]$/.test(text) && getQuotedText(msg).includes(MENU_TAG)) {
-        const replies = {
-            '1': '🎵 *සින්දුවක් ඩවුන්ලෝඩ් කිරීමට:*\n\n`.song` එකට පස්සේ නම හෝ YouTube link එක ටයිප් කරන්න.\n*උදාහරණය:* `.song lelena`',
-            '2': '🎬 *වීඩියෝවක් ඩවුන්ලෝඩ් කිරීමට:*\n\n`.video` එකට පස්සේ නම හෝ link එක ටයිප් කරන්න.\n*උදාහරණය:* `.video cctv song`',
-            '3': '🎬 *චිත්‍රපටයක් සෙවීමට:*\n\n`.movie` එකට පස්සේ නම ටයිප් කරන්න.\n*උදාහරණය:* `.movie Spiderman`',
-            '4': '👥 *ගෲප් කමාන්ඩ්ස්:*\n\n├ *.tagall* - ගෲප් එකේ හැමෝම Tag කිරීමට',
-            '5': '⚡ *Bot Status:* Online 🟢\n📌 `.ping` / `.alive` භාවිතා කරන්න'
-        };
-        return sock.sendMessage(sender, { text: replies[text] }, { quoted: msg });
+    // Universal social media download check (if link is sent directly)
+    if (URL_RE.test(text) && !isCmd) {
+        if (/tiktok|instagram|facebook|twitter|pin\.it/i.test(text)) {
+            await sock.sendMessage(sender, { text: `⏳ *සමාජ ජාල වීඩියෝව ඩවුන්ලෝඩ් වෙමින් පවතී ${pushName}...*` }, { quoted: msg });
+            const mediaUrl = await downloadSocialMedia(text);
+            if (mediaUrl) {
+                await sock.sendMessage(sender, { video: { url: mediaUrl }, caption: `> Powered by ${BOT_NAME} | Owner: ${OWNER_NAME}` }, { quoted: msg });
+            } else {
+                await sock.sendMessage(sender, { text: '❌ වීඩියෝව ඩවුන්ලෝඩ් කරගත නොහැකි විය.' }, { quoted: msg });
+            }
+            return;
+        }
     }
 
     if (!isCmd) return;
@@ -422,114 +416,102 @@ async function handleMessage(msg) {
             const start = Date.now();
             const sent = await sock.sendMessage(sender, { text: '🏓 Pinging...' }, { quoted: msg });
             const ms = Date.now() - start;
-            await sock.sendMessage(sender, { text: `⚡ *KALHARA-X-MD Latency:* \`${ms}ms\` 🚀`, edit: sent.key });
+            await sock.sendMessage(sender, { text: `⚡ *${BOT_NAME} Latency:* \`${ms}ms\` \n👤 Owner: ${OWNER_NAME}`, edit: sent.key });
             break;
         }
 
         case 'alive':
             await sock.sendMessage(sender, {
-                text: `👋 KALHARA-X-MD Active! 🤖\n👤 Developer: DMP • KALHARA 💎\n📌 Type .menu for Mini-Bot Menu!`
+                image: { url: 'https://i.postimg.cc/tCjcvzdQ/96029.png' },
+                caption: 
+`┏━━━━━━━━━━━━━━━━━━━━━┓
+┃  🤖 ${BOT_NAME} ACTIVE 🤖
+┗━━━━━━━━━━━━━━━━━━━━━┛
+👋 ආයුබෝවන් ${pushName}!
+💎 Developer / Owner: ${OWNER_NAME}
+⚡ Status: Fast & Online 🟢
+
+📌 .menu ලෙස ටයිප් කර පහසුකම් ලබාගන්න.`
+            }, { quoted: msg });
+
+            await sock.sendMessage(sender, {
+                audio: { url: 'https://www.learningcontainer.com/wp-content/uploads/2020/02/Kalimba.mp3' },
+                mimetype: 'audio/mp4',
+                ptt: true
             }, { quoted: msg });
             break;
 
         case 'menu':
         case 'help':
             await sock.sendMessage(sender, {
-                text:
-`┌──────────────────────────┐
-│  🤖 ${MENU_TAG} 🤖
-└──────────────────────────┘
-│ 👤 Owner: DMP • KALHARA
-│ ⚡ Status: Online
-└──────────────────────────┘
+                image: { url: 'https://i.postimg.cc/tCjcvzdQ/96029.png' },
+                caption:
+`┏━━━━━━━━━━━━━━━━━━━━━┓
+┃  🤖 ${MENU_TAG} 🤖
+┗━━━━━━━━━━━━━━━━━━━━━┛
+┃ 👤 Owner: ${OWNER_NAME}
+┃ ⚡ Status: Online
+┗━━━━━━━━━━━━━━━━━━━━━┛
 
-👇 අවශ්‍ය අංකය මේ message එකට Reply කරන්න:
+👋 හායි ${pushName}! මෙන්න මගේ පහසුකම්:
 
-[1] 🎵 Song Downloader (.song)
-[2] 🎬 Video Downloader (.video)
-[3] 🎬 Movie Search (.movie)
-[4] 👥 Group Commands
-[5] 🛠️ Bot Status (.ping / .alive)
+[1] 🎵 Song Downloader (.song <name>)
+[2] 🎬 Video Downloader (.video <name>)
+[3] 📥 Social Media DL (Send Link Directly)
+[4] 👀 View Once Saver (.vv - Reply to View Once)
+[5] 📌 Status Saver (.save - Reply to Status)
 
-───────────────
-</> Powered by DMP KALHARA`
+> Powered by ${OWNER_NAME}`
             }, { quoted: msg });
             break;
 
         case 'song':
         case 'play':
-            await handleSong(sender, msg, q);
+            await handleSong(sender, msg, q, pushName);
             break;
 
         case 'video':
         case 'mp4':
-            await handleVideo(sender, msg, q);
+            await handleVideo(sender, msg, q, pushName);
             break;
 
-        case 'movie':
-            await handleMovie(sender, msg, q);
-            break;
-
-        case 'tagall': {
-            if (!sender.endsWith('@g.us')) {
-                return sock.sendMessage(sender, { text: '❌ මෙම කමාන්ඩ් එක භාවිතා කළ හැක්කේ ගෲප් ඇතුළත පමණි!' }, { quoted: msg });
+        case 'movie': {
+            if (!q) return sock.sendMessage(sender, { text: `🎬 *චිත්‍රපටයේ නම ඇතුළත් කරන්න ${pushName}!*` }, { quoted: msg });
+            try {
+                const r = await axios.get('https://itunes.apple.com/search', { params: { term: q, media: 'movie', limit: 1 }, timeout: 15000 });
+                const m = r.data?.results?.[0];
+                if (!m) return sock.sendMessage(sender, { text: '❌ චිත්‍රපටය සොයාගත නොහැකි විය.' }, { quoted: msg });
+                const caption = `🎬 *${m.trackName}* (${m.releaseDate?.slice(0, 4) || 'N/A'})\n🎭 Genre: ${m.primaryGenreName || 'N/A'}\n\n📝 ${(m.longDescription || '').slice(0, 300)}`;
+                await sock.sendMessage(sender, { image: { url: (m.artworkUrl100 || '').replace('100x100', '600x600') }, caption }, { quoted: msg });
+            } catch (e) {
+                await sock.sendMessage(sender, { text: '❌ දෝෂයක් ඇති විය.' }, { quoted: msg });
             }
-            const meta = await sock.groupMetadata(sender);
-            const mentions = meta.participants.map((p) => p.id);
-            let t = `📢 *TAGGING ALL MEMBERS*\n\n👥 *Group:* ${meta.subject}\n\n`;
-            for (const id of mentions) t += `👉 @${id.split('@')[0]}\n`;
-            await sock.sendMessage(sender, { text: t, mentions }, { quoted: msg });
             break;
         }
     }
 }
 
-// ───────── Web server (Pairing) ─────────
 app.use(express.static(path.join(__dirname, 'public')));
-
 app.get('/pair', async (req, res) => {
     const phone = String(req.query.phone || '').replace(/[^0-9]/g, '');
     if (!phone) return res.json({ error: 'WhatsApp අංකය ඇතුළත් කර නැත!' });
-    if (!sock) return res.json({ error: 'සර්වර් එක සූදානම් වෙමින් පවතී. තත්පර කීපයකින් නැවත උත්සාහ කරන්න.' });
-
+    if (!sock) return res.json({ error: 'සර්වර් එක සූදානම් වෙමින් පවතී.' });
     try {
-        if (sock.authState.creds.registered) {
-            return res.json({ error: 'දැනටමත් සම්බන්ධ කර ඇත!' });
-        }
+        if (sock.authState.creds.registered) return res.json({ error: 'දැනටමත් සම්බන්ධ කර ඇත!' });
         await sleep(3000);
         let code = await sock.requestPairingCode(phone);
         code = code?.match(/.{1,4}/g)?.join('-') || code;
         return res.json({ code });
     } catch (e) {
-        console.error('Pairing error:', e.message);
-        return res.json({ error: 'Pairing Code එක ලබාගැනීමට නොහැකි විය. අංකය නිවැරදිදැයි බලන්න (රට කේතය සමඟ).' });
+        return res.json({ error: 'Pairing Code ලබාගැනීමට නොහැකි විය.' });
     }
 });
 
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 app.get('/health', (req, res) => res.send('OK'));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 app.listen(PORT, () => {
-    console.log(`\n🌐 [WEB] KALHARA-X-MD Web Server running on port ${PORT}`);
-    console.log(`👉 Open: http://localhost:${PORT}\n`);
+    console.log(`🌐 Web Server running on port ${PORT}`);
 });
 
-process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
-process.on('uncaughtException', (e) => console.error('uncaughtException:', e));
-
-// tmp folder එකේ පරණ files අයින් කරන්න (විනාඩි 30කට වඩා පරණ)
-setInterval(() => {
-    try {
-        for (const f of fs.readdirSync(tmpDir)) {
-            const p = path.join(tmpDir, f);
-            if (Date.now() - fs.statSync(p).mtimeMs > 30 * 60 * 1000) safeUnlink(p);
-        }
-    } catch (_) {}
-}, 10 * 60 * 1000);
-
-ensureYtDlp()
-    .catch((e) => console.error('⚠️ yt-dlp setup failed:', e.message))
-    .finally(() => startBot());
+ensureYtDlp().finally(() => startBot());
