@@ -1,7 +1,6 @@
 /**
- * KALHARA-X-MD MINI BOT (fixed version)
- * Free tools only: yt-search (search), yt-dlp via youtube-dl-exec (download),
- * ffmpeg-static (convert), @distube/ytdl-core (fallback), iTunes Search API (movies)
+ * KALHARA-X-MD MINI BOT (Fixed & Full Version)
+ * Commands: .song / .play, .video / .mp4, .movie, .menu, .ping, .alive, .tagall
  */
 const {
     default: makeWASocket,
@@ -19,16 +18,13 @@ const os = require('os');
 const path = require('path');
 const axios = require('axios');
 const yts = require('yt-search');
-const youtubedl = require('youtube-dl-exec');
-const ffmpegPath = require('ffmpeg-static');
-const ytdl = require('@distube/ytdl-core');
 
 // ───────── Config ─────────
 const PREFIX = '.';
 const PORT = process.env.PORT || 3000;
-const AUTO_STATUS_SEEN = true;      // status බලනවා
-const AUTO_STATUS_REACT = false;    // react කරන එක ban අවදානම වැඩි, ඕන නම් true කරන්න
-const MAX_DURATION_SEC = 15 * 60;   // විනාඩි 15ට වැඩි වීඩියෝ skip
+const AUTO_STATUS_SEEN = true;
+const AUTO_STATUS_REACT = false;
+const MAX_DURATION_SEC = 20 * 60;   // විනාඩි 20ට වැඩි වීඩියෝ skip
 const MENU_TAG = 'KALHARA-X MINI BOT';
 
 const authFolder = path.join(__dirname, 'auth_info');
@@ -63,81 +59,20 @@ function getQuotedText(msg) {
 }
 
 function cleanName(s) {
-    return String(s).replace(/[\\/:*?"<>|]/g, '').slice(0, 80) || 'song';
+    return String(s).replace(/[\\/:*?"<>|]/g, '').slice(0, 80) || 'media';
 }
 
 function safeUnlink(p) {
     try { fs.existsSync(p) && fs.unlinkSync(p); } catch (_) {}
 }
 
-// ───────── Song download (3 methods) ─────────
-async function dlYtDlp(url, base) {
-    await youtubedl(url, {
-        extractAudio: true,
-        audioFormat: 'mp3',
-        audioQuality: 5,
-        output: base + '.%(ext)s',
-        ffmpegLocation: ffmpegPath,
-        noPlaylist: true,
-        noWarnings: true,
-        maxFilesize: '40M'
-    });
-    const file = base + '.mp3';
-    if (!fs.existsSync(file)) throw new Error('yt-dlp output missing');
-    return { file, mimetype: 'audio/mpeg' };
-}
-
-async function dlYtdlCore(url, base) {
-    const file = base + '.m4a';
-    await new Promise((resolve, reject) => {
-        const stream = ytdl(url, { filter: 'audioonly', quality: 'highestaudio', highWaterMark: 1 << 25 });
-        const out = fs.createWriteStream(file);
-        stream.pipe(out);
-        stream.on('error', reject);
-        out.on('finish', resolve);
-        out.on('error', reject);
-    });
-    return { file, mimetype: 'audio/mp4' };
-}
-
-async function dlThirdParty(url, base) {
-    // අවසාන fallback (වෙන කෙනෙක්ගේ free API, වැඩ නැති වෙන්නත් පුළුවන්)
-    const r = await axios.get('https://back.asitha.top/api/ytapi', {
-        params: { url, fo: 2, qu: 128 },
-        timeout: 30000
-    });
-    const d = r.data?.result || r.data;
-    const link = d?.dl_url || d?.download || d?.url;
-    if (!link) throw new Error('no link from api');
-    const file = base + '.mp3';
-    const res = await axios.get(link, { responseType: 'arraybuffer', timeout: 120000 });
-    fs.writeFileSync(file, res.data);
-    return { file, mimetype: 'audio/mpeg' };
-}
-
-async function downloadAudio(url, base) {
-    const methods = [dlYtDlp, dlYtdlCore, dlThirdParty];
-    let lastErr;
-    for (const fn of methods) {
-        try {
-            return await fn(url, base);
-        } catch (e) {
-            lastErr = e;
-            console.error(`[song] ${fn.name} failed:`, e.message);
-            ['.mp3', '.m4a', '.webm', '.part'].forEach((ext) => safeUnlink(base + ext));
-        }
-    }
-    throw lastErr;
-}
-
+// ───────── Job Polling / Direct API Downloader for Audio (.song) ─────────
 async function handleSong(sender, msg, q) {
     if (!q) {
         return sock.sendMessage(sender, { text: '🎵 *කරුණාකර සින්දුවේ නම ඇතුළත් කරන්න!*\n*උදාහරණ:* `.song lelena`' }, { quoted: msg });
     }
-    await sock.sendMessage(sender, { text: `🔍 *සොයමින්:* _${q}_\n⌛ මොහොතක් රැඳී සිටින්න...` }, { quoted: msg });
+    await sock.sendMessage(sender, { text: `🔍 *සොයමින්:* _${q}_\n⌛ Audio ෆයිල් එක සූදානම් කරමින් පවතී...` }, { quoted: msg });
 
-    const base = path.join(tmpDir, `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
-    let result;
     try {
         const search = await yts(q);
         const video = search.videos.find((v) => v.seconds > 0 && v.seconds <= MAX_DURATION_SEC);
@@ -147,28 +82,102 @@ async function handleSong(sender, msg, q) {
 
         await sock.sendMessage(sender, {
             image: { url: video.thumbnail },
-            caption: `🎵 *${video.title}*\n⏱️ ${video.timestamp}\n👤 ${video.author?.name || ''}\n\n⬇️ Audio එක එවමින් පවතී...`
+            caption: `🎵 *${video.title}*\n⏱️ ${video.timestamp}\n👤 ${video.author?.name || ''}\n\n⬇️ Audio එක ඩවුන්ලෝඩ් වෙමින් පවතී...`
         }, { quoted: msg });
 
-        result = await downloadAudio(video.url, base);
-        const buffer = fs.readFileSync(result.file);
+        let downloadUrl = '';
+
+        // Try Asitha Top API for Audio (fo: 2 = MP3)
+        try {
+            const backupRes = await axios.get('https://back.asitha.top/api/ytapi', {
+                params: { url: video.url, fo: 2, qu: 128 },
+                timeout: 15000
+            });
+            const bData = backupRes.data?.result || backupRes.data;
+            downloadUrl = bData?.dl_url || bData?.download || bData?.url;
+        } catch (e) {}
+
+        // Fallback Vyt worker API
+        if (!downloadUrl) {
+            try {
+                const alt = await axios.get(`https://api.vyt.workers.dev/dl?url=${encodeURIComponent(video.url)}`, { timeout: 15000 });
+                downloadUrl = alt.data?.dl_url || alt.data?.downloadUrl;
+            } catch (e) {}
+        }
+
+        if (!downloadUrl) {
+            return sock.sendMessage(sender, { text: '❌ සින්දුවේ ඩවුන්ලෝඩ් ලින්ක් එක ලබාගැනීමට නොහැකි විය.' }, { quoted: msg });
+        }
+
+        const audioRes = await axios.get(downloadUrl, { responseType: 'arraybuffer', timeout: 60000 });
+        const buffer = Buffer.from(audioRes.data);
 
         await sock.sendMessage(sender, {
             audio: buffer,
-            mimetype: result.mimetype,
+            mimetype: 'audio/mp4',
             ptt: false,
-            fileName: `${cleanName(video.title)}.mp3`
+            fileName: `${cleanName(video.title)}.mp3`,
+            caption: `🎵 *${video.title}*\n\n> *Powered by KALHARA-X-MD*`
         }, { quoted: msg });
+
     } catch (err) {
-        console.error('Song error:', err);
-        await sock.sendMessage(sender, { text: '❌ සින්දුව ඩවුන්ලෝඩ් කිරීමේදී දෝෂයක් ඇති විය. පසුව නැවත උත්සාහ කරන්න.' }, { quoted: msg });
-    } finally {
-        if (result?.file) safeUnlink(result.file);
-        ['.mp3', '.m4a', '.webm', '.part'].forEach((ext) => safeUnlink(base + ext));
+        console.error('Song download error:', err.message);
+        await sock.sendMessage(sender, { text: '❌ සින්දුව ඩවුන්ලෝඩ් කිරීමේදී දෝෂයක් ඇති විය.' }, { quoted: msg });
     }
 }
 
-// ───────── Movie search (iTunes API, free, no key) ─────────
+// ───────── Video Downloader (.video / .mp4) ─────────
+async function handleVideo(sender, msg, q) {
+    if (!q) {
+        return sock.sendMessage(sender, { text: '🎬 *කරුණාකර වීඩියෝවේ නම ඇතුළත් කරන්න!*\n*උදාහරණ:* `.video cctv song`' }, { quoted: msg });
+    }
+    await sock.sendMessage(sender, { text: `🔍 *වීඩියෝව සොයමින්:* _${q}_\n⌛ වීඩියෝ ෆයිල් එක සූදානම් කරමින් පවතී...` }, { quoted: msg });
+
+    try {
+        const search = await yts(q);
+        const video = search.videos.find((v) => v.seconds > 0 && v.seconds <= MAX_DURATION_SEC);
+        if (!video) {
+            return sock.sendMessage(sender, { text: '❌ වීඩියෝව සොයාගත නොහැකි විය (නැත්නම් ඉතා දිගයි).' }, { quoted: msg });
+        }
+
+        let downloadUrl = '';
+
+        // Try Asitha Top API for Video (fo: 1 = MP4, qu: 360 or 480)
+        try {
+            const vidRes = await axios.get('https://back.asitha.top/api/ytapi', {
+                params: { url: video.url, fo: 1, qu: 360 },
+                timeout: 20000
+            });
+            const vData = vidRes.data?.result || vidRes.data;
+            downloadUrl = vData?.dl_url || vData?.download || vData?.url;
+        } catch (e) {}
+
+        // Fallback fgmods API for video
+        if (!downloadUrl) {
+            try {
+                const altVid = await axios.get(`https://api.fgmods.xyz/api/downloader/ytmp4?url=${encodeURIComponent(video.url)}&apikey=fg-mikey`, { timeout: 20000 });
+                downloadUrl = altVid.data?.result?.dl_url || altVid.data?.result?.download;
+            } catch (e) {}
+        }
+
+        if (!downloadUrl) {
+            return sock.sendMessage(sender, { text: '❌ වීඩියෝ ඩවුන්ලෝඩ් ලින්ක් එක ලබාගැනීමට නොහැකි විය.' }, { quoted: msg });
+        }
+
+        await sock.sendMessage(sender, {
+            video: { url: downloadUrl },
+            mimetype: 'video/mp4',
+            fileName: `${cleanName(video.title)}.mp4`,
+            caption: `🎬 *${video.title}*\n⏱️ ${video.timestamp}\n\n> *Powered by KALHARA-X-MD*`
+        }, { quoted: msg });
+
+    } catch (err) {
+        console.error('Video download error:', err.message);
+        await sock.sendMessage(sender, { text: '❌ වීඩියෝව ඩවුන්ලෝඩ් කිරීමේදී දෝෂයක් ඇති විය.' }, { quoted: msg });
+    }
+}
+
+// ───────── Movie search (iTunes API) ─────────
 async function handleMovie(sender, msg, q) {
     if (!q) {
         return sock.sendMessage(sender, { text: '🎬 *චිත්‍රපටයේ නම ඇතුළත් කරන්න!*\n*උදාහරණ:* `.movie Spiderman`' }, { quoted: msg });
@@ -199,7 +208,7 @@ async function handleMovie(sender, msg, q) {
     }
 }
 
-// ───────── Bot ─────────
+// ───────── Bot Core ─────────
 async function startBot() {
     if (starting) return;
     starting = true;
@@ -241,15 +250,12 @@ async function startBot() {
 
 📌 .menu ලෙස ටයිප් කර Menu එක ලබාගන්න.`
                     });
-                } catch (e) {
-                    console.error('Welcome message failed:', e.message);
-                }
+                } catch (e) {}
             } else if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
                 console.log(`සම්බන්ධතාවය නතර විය (Code: ${statusCode}). Reconnecting: ${shouldReconnect}`);
                 if (statusCode === DisconnectReason.loggedOut) {
-                    // session එක invalid, අලුතින් pair කරන්න ඕන
                     try { fs.rmSync(authFolder, { recursive: true, force: true }); } catch (_) {}
                 }
                 starting = false;
@@ -280,7 +286,6 @@ async function handleMessage(msg) {
     if (!msg || !msg.message) return;
     const jid = msg.key.remoteJid;
 
-    // Status auto seen / react (අනුන්ගේ status වලට පමණක්)
     if (jid === 'status@broadcast') {
         if (msg.key.fromMe) return;
         try {
@@ -303,13 +308,14 @@ async function handleMessage(msg) {
     const command = isCmd ? (parts.shift() || '').toLowerCase() : '';
     const q = isCmd ? parts.join(' ') : '';
 
-    // Menu reply numbers (menu message එකට reply කළොත් පමණක්)
-    if (!isCmd && /^[1-4]$/.test(text) && getQuotedText(msg).includes(MENU_TAG)) {
+    // Menu reply numbers
+    if (!isCmd && /^[1-5]$/.test(text) && getQuotedText(msg).includes(MENU_TAG)) {
         const replies = {
-            '1': '🎵 *සින්දුවක් ඩවුන්ලෝඩ් කිරීමට:*\n\n`.song` එකට පස්සේ නම ටයිප් කරන්න.\n*උදාහරණය:* `.song lelena`',
-            '2': '🎬 *චිත්‍රපටයක් සෙවීමට:*\n\n`.movie` එකට පස්සේ නම ටයිප් කරන්න.\n*උදාහරණය:* `.movie Spiderman`',
-            '3': '👥 *ගෲප් කමාන්ඩ්ස්:*\n\n├ *.tagall* - ගෲප් එකේ හැමෝම Tag කිරීමට',
-            '4': '⚡ *Bot Status:* Online 🟢\n📌 `.ping` / `.alive` භාවිතා කරන්න'
+            '1': '🎵 *සින්දුවක් (MP3) ඩවුන්ලෝඩ් කිරීමට:*\n\n`.song` එකට පස්සේ නම ටයිප් කරන්න.\n*උදාහරණය:* `.song lelena`',
+            '2': '🎬 *වීඩියෝවක් (MP4) ඩවුන්ලෝඩ් කිරීමට:*\n\n`.video` එකට පස්සේ නම ටයිප් කරන්න.\n*උදාහරණය:* `.video song`',
+            '3': '🎬 *චිත්‍රපටයක් සෙවීමට:*\n\n`.movie` එකට පස්සේ නම ටයිප් කරන්න.\n*උදාහරණය:* `.movie Spiderman`',
+            '4': '👥 *ගෲප් කමාන්ඩ්ස්:*\n\n├ *.tagall* - ගෲප් එකේ හැමෝම Tag කිරීමට',
+            '5': '⚡ *Bot Status:* Online 🟢\n📌 `.ping` / `.alive` භාවිතා කරන්න'
         };
         return sock.sendMessage(sender, { text: replies[text] }, { quoted: msg });
     }
@@ -345,9 +351,10 @@ async function handleMessage(msg) {
 👇 අවශ්‍ය අංකය මේ message එකට Reply කරන්න:
 
 [1] 🎵 Song Downloader (.song)
-[2] 🎬 Movie Search (.movie)
-[3] 👥 Group Commands
-[4] 🛠️ Bot Status (.ping / .alive)
+[2] 🎬 Video Downloader (.video)
+[3] 🎬 Movie Search (.movie)
+[4] 👥 Group Commands
+[5] 🛠️ Bot Status (.ping / .alive)
 
 ───────────────
 </> Powered by DMP KALHARA`
@@ -357,6 +364,11 @@ async function handleMessage(msg) {
         case 'song':
         case 'play':
             await handleSong(sender, msg, q);
+            break;
+
+        case 'video':
+        case 'mp4':
+            await handleVideo(sender, msg, q);
             break;
 
         case 'movie':
@@ -377,7 +389,7 @@ async function handleMessage(msg) {
     }
 }
 
-// ───────── Web server (pairing) ─────────
+// ───────── Web server (Pairing) ─────────
 const pairPage = `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>KALHARA-X-MD Pair</title>
