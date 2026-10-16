@@ -1,5 +1,5 @@
 /**
- * KALHARA-X-MD MINI BOT (Fixed & Stable Pairing Version)
+ * KALHARA-X-MD MINI BOT (QR + Pair + Advanced Features)
  * Owner: පැතුම් කල්හාර
  */
 const {
@@ -46,6 +46,7 @@ fs.mkdirSync(authFolder, { recursive: true });
 const app = express();
 let sock = null;
 let starting = false;
+let currentQR = null;
 let YTDLP = 'yt-dlp';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -245,8 +246,12 @@ async function startBot() {
         sock.ev.on('creds.update', saveCreds);
 
         sock.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect } = update;
+            const { connection, lastDisconnect, qr } = update;
+            if (qr) {
+                currentQR = qr;
+            }
             if (connection === 'open') {
+                currentQR = null;
                 console.log('\n🎉 [SUCCESS] Bot Connected Successfully!\n');
                 try {
                     const userJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
@@ -428,14 +433,21 @@ async function handleMessage(msg) {
     }
 }
 
-// ───────── Web server & Robust Pairing Routes ─────────
+// ───────── Web server & Routes (QR + Pair) ─────────
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/qr-raw', (req, res) => {
+    if (currentQR) {
+        res.json({ qr: currentQR });
+    } else {
+        res.json({ qr: null });
+    }
+});
 
 app.get('/pair', async (req, res) => {
     const phone = String(req.query.phone || '').replace(/[^0-9]/g, '');
     if (!phone) return res.json({ error: 'WhatsApp අංකය ඇතුළත් කර නැත!' });
 
-    // Wait until sock is initialized
     let retries = 10;
     while (!sock && retries > 0) {
         await sleep(1000);
