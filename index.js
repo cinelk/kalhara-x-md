@@ -1,6 +1,6 @@
 /**
- * KALHARA-X-MD MINI BOT (Advanced & Fast Version)
- * Owner: පැතුම් කල්හාර (Pathum Kalhara)
+ * KALHARA-X-MD MINI BOT
+ * Owner: පැතුම් කල්හාර
  */
 const {
     default: makeWASocket,
@@ -33,6 +33,9 @@ const MAX_AUDIO_MB = 60;
 const MAX_VIDEO_MB = 64;
 const MENU_TAG = 'KALHARA-X MINI BOT';
 const COOKIES_FILE = path.join(__dirname, 'cookies.txt');
+
+const ALIVE_IMG = 'https://i.postimg.cc/tCjcvzdQ/96029.png';
+const CONNECTED_IMG = 'https://i.postimg.cc/MKSL3Y0k/96032.png';
 
 const authFolder = path.join(__dirname, 'auth_info');
 const binDir = path.join(__dirname, 'bin');
@@ -170,35 +173,18 @@ async function download(url, kind) {
     return path.join(tmpDir, file);
 }
 
-// Universal Downloader for Social Media (Cobalt / APIs)
-async function downloadSocialMedia(url) {
-    try {
-        const res = await axios.post('https://co.wuk.sh/api/json', {
-            url: url,
-            vQuality: '720'
-        }, {
-            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-            timeout: 30000
-        });
-        if (res.data && (res.data.url || res.data.picker)) {
-            return res.data.url || res.data.picker[0].url;
-        }
-    } catch (_) {}
-    return null;
-}
-
 // ───────── Command Handlers ─────────
 async function handleSong(sender, msg, q, pushName) {
     if (!q) {
         return sock.sendMessage(sender, { text: `🎵 *කරුණාකර සින්දුවේ නම හෝ YouTube link එක දෙන්න ${pushName}!*` }, { quoted: msg });
     }
-    await sock.sendMessage(sender, { text: `🔍 *සොයමින් පවතී:* _${q}_` }, { quoted: msg });
+    await sock.sendMessage(sender, { text: `🔍 *සොයමින් පවතී ${pushName}...*` }, { quoted: msg });
     let file;
     try {
         const video = await resolveVideo(q);
         if (!video) return sock.sendMessage(sender, { text: '❌ සින්දුව සොයාගත නොහැකි විය.' }, { quoted: msg });
 
-        const info = `┏━━━━━━━━━━━━━━━━━━━━━┓\n┃ 🎵 *${video.title}*\n┗━━━━━━━━━━━━━━━━━━━━━┛\n⏱️ ${video.timestamp || 'N/A'}\n👤 ${ownerMsg(pushName)}`;
+        const info = `┏━━━━━━━━━━━━━━━━━━━━━┓\n┃ 🎵 *${video.title}*\n┗━━━━━━━━━━━━━━━━━━━━━┛\n⏱️ ${video.timestamp || 'N/A'}\n👤 Owner: ${OWNER_NAME}`;
         if (video.thumbnail) {
             await sock.sendMessage(sender, { image: { url: video.thumbnail }, caption: info }, { quoted: msg }).catch(() => {});
         }
@@ -220,7 +206,7 @@ async function handleVideo(sender, msg, q, pushName) {
     if (!q) {
         return sock.sendMessage(sender, { text: `🎬 *කරුණාකර වීඩියෝවේ නම හෝ link එක දෙන්න ${pushName}!*` }, { quoted: msg });
     }
-    await sock.sendMessage(sender, { text: `🔍 *වීඩියෝව සූදානම් කරමින් පවතී...*` }, { quoted: msg });
+    await sock.sendMessage(sender, { text: `🔍 *වීඩියෝව සූදානම් කරමින් පවතී ${pushName}...*` }, { quoted: msg });
     let file;
     try {
         const video = await resolveVideo(q);
@@ -238,10 +224,6 @@ async function handleVideo(sender, msg, q, pushName) {
     } finally {
         safeUnlink(file);
     }
-}
-
-function ownerMsg(pushName) {
-    return `🤖 Bot Owner: ${OWNER_NAME} | User: ${pushName}`;
 }
 
 // ───────── Bot Core ─────────
@@ -274,9 +256,8 @@ async function startBot() {
                 console.log('\n🎉 [SUCCESS] Bot Connected Successfully!\n');
                 try {
                     const userJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-                    // Connected Image Poster
                     await sock.sendMessage(userJid, {
-                        image: { url: 'https://i.postimg.cc/MKSL3Y0k/96032.png' },
+                        image: { url: CONNECTED_IMG },
                         caption: 
 `┏━━━━━━━━━━━━━━━━━━━━━┓
 ┃  🚀 ${BOT_NAME} ONLINE 🚀
@@ -284,7 +265,6 @@ async function startBot() {
 👋 ආයුබෝවන් ${OWNER_NAME}!
 ඔබගේ පබ්ලික් බොට් පද්ධතිය සාර්ථකව සක්‍රීය විය! 🎉`
                     });
-                    // Voice Note greeting
                     await sock.sendMessage(userJid, {
                         audio: { url: 'https://www.learningcontainer.com/wp-content/uploads/2020/02/Kalimba.mp3' },
                         mimetype: 'audio/mp4',
@@ -323,7 +303,7 @@ async function handleMessage(msg) {
     const jid = msg.key.remoteJid;
     const pushName = msg.pushName || 'යාළුවා';
 
-    // Auto Status Seen & React
+    // Auto Status Seen
     if (jid === 'status@broadcast') {
         if (!msg.key.fromMe) {
             try {
@@ -342,30 +322,27 @@ async function handleMessage(msg) {
     const text = getText(msg);
 
     // View Once (.vv) handler
-    const content = normalizeMessageContent(msg.message);
-    const isViewOnce = content?.imageMessage?.viewOnce || content?.videoMessage?.viewOnce || 
-                       content?.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage?.viewOnce;
-
-    if (text === '.vv' && isViewOnce) {
+    if (text === '.vv') {
         try {
-            const quotedMsg = msg.message.extendedTextMessage.contextInfo.quotedMessage;
-            const targetMsg = { key: { remoteJid: jid, id: msg.message.extendedTextMessage.contextInfo.stanzaId, participant: msg.message.extendedTextMessage.contextInfo.participant }, message: quotedMsg };
-            const mediaBuffer = await downloadMediaMessage(targetMsg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
-            const ownerJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-            
-            if (quotedMsg.imageMessage) {
-                await sock.sendMessage(ownerJid, { image: mediaBuffer, caption: `📥 *Saved View Once Photo*\n👤 From: ${pushName}\n💎 Owner: ${OWNER_NAME}` });
-            } else if (quotedMsg.videoMessage) {
-                await sock.sendMessage(ownerJid, { video: mediaBuffer, caption: `📥 *Saved View Once Video*\n👤 From: ${pushName}\n💎 Owner: ${OWNER_NAME}` });
+            const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+            if (quoted) {
+                const targetMsg = { key: { remoteJid: jid, id: msg.message.extendedTextMessage.contextInfo.stanzaId, participant: msg.message.extendedTextMessage.contextInfo.participant }, message: quoted };
+                const buffer = await downloadMediaMessage(targetMsg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+                const ownerJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                if (quoted.imageMessage || quoted.viewOnceMessageV2?.message?.imageMessage) {
+                    await sock.sendMessage(ownerJid, { image: buffer, caption: `📥 *Saved View Once Photo*\n👤 From: ${pushName}\n💎 Owner: ${OWNER_NAME}` });
+                } else if (quoted.videoMessage || quoted.viewOnceMessageV2?.message?.videoMessage) {
+                    await sock.sendMessage(ownerJid, { video: buffer, caption: `📥 *Saved View Once Video*\n👤 From: ${pushName}\n💎 Owner: ${OWNER_NAME}` });
+                }
+                await sock.sendMessage(sender, { text: `✅ View Once මීඩියා එක ${OWNER_NAME} වෙත යවන ලදී!` }, { quoted: msg });
             }
-            await sock.sendMessage(sender, { text: `✅ View Once මීඩියා එක ${OWNER_NAME} වෙත සාර්ථකව යවන ලදී!` }, { quoted: msg });
         } catch (e) {
             await sock.sendMessage(sender, { text: '❌ View Once ලබාගැනීමේ දෝෂයක්.' }, { quoted: msg });
         }
         return;
     }
 
-    // .save handler for Status downloading
+    // Status Saver (.save)
     if (text === '.save') {
         const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
         if (quoted) {
@@ -382,8 +359,6 @@ async function handleMessage(msg) {
             } catch (e) {
                 await sock.sendMessage(sender, { text: '❌ ස්ටේටස් ඩවුන්ලෝඩ් කරගත නොහැකි විය.' }, { quoted: msg });
             }
-        } else {
-            await sock.sendMessage(sender, { text: '⚠️ ස්ටේටස් එකක් Reply කර `.save` ලෙස එවන්න.' }, { quoted: msg });
         }
         return;
     }
@@ -395,20 +370,6 @@ async function handleMessage(msg) {
     const command = isCmd ? (parts.shift() || '').toLowerCase() : '';
     const q = isCmd ? parts.join(' ') : '';
 
-    // Universal social media download check (if link is sent directly)
-    if (URL_RE.test(text) && !isCmd) {
-        if (/tiktok|instagram|facebook|twitter|pin\.it/i.test(text)) {
-            await sock.sendMessage(sender, { text: `⏳ *සමාජ ජාල වීඩියෝව ඩවුන්ලෝඩ් වෙමින් පවතී ${pushName}...*` }, { quoted: msg });
-            const mediaUrl = await downloadSocialMedia(text);
-            if (mediaUrl) {
-                await sock.sendMessage(sender, { video: { url: mediaUrl }, caption: `> Powered by ${BOT_NAME} | Owner: ${OWNER_NAME}` }, { quoted: msg });
-            } else {
-                await sock.sendMessage(sender, { text: '❌ වීඩියෝව ඩවුන්ලෝඩ් කරගත නොහැකි විය.' }, { quoted: msg });
-            }
-            return;
-        }
-    }
-
     if (!isCmd) return;
 
     switch (command) {
@@ -416,19 +377,19 @@ async function handleMessage(msg) {
             const start = Date.now();
             const sent = await sock.sendMessage(sender, { text: '🏓 Pinging...' }, { quoted: msg });
             const ms = Date.now() - start;
-            await sock.sendMessage(sender, { text: `⚡ *${BOT_NAME} Latency:* \`${ms}ms\` \n👤 Owner: ${OWNER_NAME}`, edit: sent.key });
+            await sock.sendMessage(sender, { text: `⚡ *${BOT_NAME} Latency:* \`${ms}ms\`\n👤 Owner: ${OWNER_NAME}`, edit: sent.key });
             break;
         }
 
         case 'alive':
             await sock.sendMessage(sender, {
-                image: { url: 'https://i.postimg.cc/tCjcvzdQ/96029.png' },
+                image: { url: ALIVE_IMG },
                 caption: 
 `┏━━━━━━━━━━━━━━━━━━━━━┓
 ┃  🤖 ${BOT_NAME} ACTIVE 🤖
 ┗━━━━━━━━━━━━━━━━━━━━━┛
 👋 ආයුබෝවන් ${pushName}!
-💎 Developer / Owner: ${OWNER_NAME}
+💎 Owner: ${OWNER_NAME}
 ⚡ Status: Fast & Online 🟢
 
 📌 .menu ලෙස ටයිප් කර පහසුකම් ලබාගන්න.`
@@ -444,7 +405,7 @@ async function handleMessage(msg) {
         case 'menu':
         case 'help':
             await sock.sendMessage(sender, {
-                image: { url: 'https://i.postimg.cc/tCjcvzdQ/96029.png' },
+                image: { url: ALIVE_IMG },
                 caption:
 `┏━━━━━━━━━━━━━━━━━━━━━┓
 ┃  🤖 ${MENU_TAG} 🤖
@@ -457,9 +418,8 @@ async function handleMessage(msg) {
 
 [1] 🎵 Song Downloader (.song <name>)
 [2] 🎬 Video Downloader (.video <name>)
-[3] 📥 Social Media DL (Send Link Directly)
-[4] 👀 View Once Saver (.vv - Reply to View Once)
-[5] 📌 Status Saver (.save - Reply to Status)
+[3] 👀 View Once Saver (.vv - Reply to View Once)
+[4] 📌 Status Saver (.save - Reply to Status)
 
 > Powered by ${OWNER_NAME}`
             }, { quoted: msg });
@@ -474,44 +434,38 @@ async function handleMessage(msg) {
         case 'mp4':
             await handleVideo(sender, msg, q, pushName);
             break;
-
-        case 'movie': {
-            if (!q) return sock.sendMessage(sender, { text: `🎬 *චිත්‍රපටයේ නම ඇතුළත් කරන්න ${pushName}!*` }, { quoted: msg });
-            try {
-                const r = await axios.get('https://itunes.apple.com/search', { params: { term: q, media: 'movie', limit: 1 }, timeout: 15000 });
-                const m = r.data?.results?.[0];
-                if (!m) return sock.sendMessage(sender, { text: '❌ චිත්‍රපටය සොයාගත නොහැකි විය.' }, { quoted: msg });
-                const caption = `🎬 *${m.trackName}* (${m.releaseDate?.slice(0, 4) || 'N/A'})\n🎭 Genre: ${m.primaryGenreName || 'N/A'}\n\n📝 ${(m.longDescription || '').slice(0, 300)}`;
-                await sock.sendMessage(sender, { image: { url: (m.artworkUrl100 || '').replace('100x100', '600x600') }, caption }, { quoted: msg });
-            } catch (e) {
-                await sock.sendMessage(sender, { text: '❌ දෝෂයක් ඇති විය.' }, { quoted: msg });
-            }
-            break;
-        }
     }
 }
 
+// ───────── Web server & Essential Pairing Routes ─────────
 app.use(express.static(path.join(__dirname, 'public')));
+
 app.get('/pair', async (req, res) => {
     const phone = String(req.query.phone || '').replace(/[^0-9]/g, '');
     if (!phone) return res.json({ error: 'WhatsApp අංකය ඇතුළත් කර නැත!' });
-    if (!sock) return res.json({ error: 'සර්වර් එක සූදානම් වෙමින් පවතී.' });
+    if (!sock) return res.json({ error: 'සර්වර් එක සූදානම් වෙමින් පවතී. තත්පර කීපයකින් නැවත උත්සාහ කරන්න.' });
+
     try {
-        if (sock.authState.creds.registered) return res.json({ error: 'දැනටමත් සම්බන්ධ කර ඇත!' });
+        if (sock.authState.creds.registered) {
+            return res.json({ error: 'දැනටමත් සම්බන්ධ කර ඇත!' });
+        }
         await sleep(3000);
         let code = await sock.requestPairingCode(phone);
         code = code?.match(/.{1,4}/g)?.join('-') || code;
         return res.json({ code });
     } catch (e) {
-        return res.json({ error: 'Pairing Code ලබාගැනීමට නොහැකි විය.' });
+        console.error('Pairing error:', e.message);
+        return res.json({ error: 'Pairing Code එක ලබාගැනීමට නොහැකි විය. අංකය නිවැරදිදැයි බලන්න (රට කේතය සමඟ).' });
     }
 });
 
 app.get('/health', (req, res) => res.send('OK'));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 app.listen(PORT, () => {
-    console.log(`🌐 Web Server running on port ${PORT}`);
+    console.log(`\n🌐 [WEB] KALHARA-X-MD Web Server running on port ${PORT}`);
 });
 
 ensureYtDlp().finally(() => startBot());
