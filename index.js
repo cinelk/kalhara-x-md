@@ -140,7 +140,7 @@ async function handleMessage(msg) {
 function connectedText() {
     const n = U.num(sock.user.id);
     const t = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Colombo', hour12: true });
-    return `╭──────⟡ ⚡ KALHARA X MD ⚡ ⟡──────╮\n│ ✅ Connected • සම්බන්ධ විය\n╰───────────────────────╯\n\n👋 Hi ${S.get('owner_name')}! • ආයුබෝවන්!\n🚀 Your bot is online & ready\n    ඔබේ බොට් දැන් ක්‍රියාත්මකයි\n\n┏━━ 📋 BOT DETAILS ━━┓\n┃ 🏷️ Name     : ${S.get('bot_name')}\n┃ 👑 Owner    : ${S.get('owner_name')}\n┃ 📞 Number   : +${n}\n┃ 🔣 Prefix   : ${C.PREFIX}\n┃ 🧩 Commands : ${commandList.length}\n┃ 🕒 Time     : ${t}\n┃ 🟢 Status   : Online\n┗━━━━━━━━━━━━━━━━━━┛\n\n📜 ${C.PREFIX}menu • මෙනුව බලන්න\n\n🔗 Get your own bot — connect via our site 👇\n${S.get('site_url')}`;
+    return `╭──────⟡ ⚡ KALHARA X MD ⚡ ⟡──────╮\n│ ✅ Bot Connected !\n╰───────────────────────╯\n\n👋 Hi ${S.get('owner_name')}! • ආයුබෝවන්!\n🚀 Your bot is online & ready\n    ඔබේ බොට් දැන් ක්‍රියාත්මකයි\n\n┏━━ 📋 BOT DETAILS ━━┓\n┃ 🏷️ Name     : ${S.get('bot_name')}\n┃ 👑 Owner    : ${S.get('owner_name')}\n┃ 📞 Number   : +${n}\n┃ 🔣 Prefix   : ${C.PREFIX}\n┃ 🧩 Commands : ${commandList.length}\n┃ 🕒 Time     : ${t}\n┃ 🟢 Status   : Online\n┗━━━━━━━━━━━━━━━━━━┛\n\n📜 ${C.PREFIX}menu • මෙනුව බලන්න\n\n🔗 Get your own bot — connect via our site 👇\n${S.get('site_url')}`;
 }
 
 // ───────── Logout / unlink handler ─────────
@@ -254,6 +254,15 @@ async function startBot() {
 }
 
 // ───────── Web server (pair website) ─────────
+
+app.get('/reset', async (req, res) => {
+    if (!process.env.RESET_KEY || req.query.key !== process.env.RESET_KEY) {
+        return res.status(403).send('forbidden');
+    }
+    await resetSession();
+    res.send('Session cleared. තත්පර 15කින් පස්සේ pair page එකෙන් අලුත් code එකක් ගන්න.');
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/qr-raw', (req, res) => res.json({ qr: currentQR || null }));
@@ -261,12 +270,12 @@ app.get('/qr-raw', (req, res) => res.json({ qr: currentQR || null }));
 app.get('/pair', async (req, res) => {
     const phone = String(req.query.phone || '').replace(/[^0-9]/g, '');
     if (!phone) return res.json({ error: 'WhatsApp අංකය ඇතුළත් කර නැත!' });
-    if (phone.startsWith('0')) return res.json({ error: 'අංකය 0 න් පටන් ගන්න එපා. රට කේතය සමඟ ගහන්න (උදා: 94771234567).' });
-    if (phone.length < 10 || phone.length > 15) return res.json({ error: 'අංකය වැරදියි. රට කේතය සමඟ සම්පූර්ණ අංකය ගහන්න (උදා: 94771234567).' });
+    if (phone.startsWith('0')) return res.json({ error: 'අංකය 0 න් පටන් ගන්න එපා. 94 සමග වට්සැප් අංකය ඇතුලත් කරන්න (උදා: 94714063108).' });
+    if (phone.length < 10 || phone.length > 15) return res.json({ error: 'අංකය වැරදියි. 94 සමඟ  වට්සැප් අංකය ඇතුලත් කරන්න (උදා: 94714063108).' });
 
     // Bot really connected right now
     if (isOpen) {
-        return res.json({ error: 'දැනටමත් බොට් කනෙක්ට් කර ඇත!' });
+        return res.json({ error: 'ඔබ දැනටමත් බොට් සම්බන්ද කර ඇත!' });
     }
 
     // Same number within 60s -> same code (a new code would invalidate the old one)
@@ -276,7 +285,7 @@ app.get('/pair', async (req, res) => {
 
     // Old registered session still reconnecting (or phone unlink not yet detected)
     if (sock?.authState?.creds?.registered) {
-        return res.json({ error: 'බොට් සම්බන්ධ වෙමින් පවතී. Phone එකෙන් unlink කළා නම් තත්පර 15කින් නැවත උත්සාහ කරන්න.' });
+        return res.json({ error: 'බොට් සම්බන්ධ වෙමින් පවතී. Phone එකෙන් unlink කර ඇත්නම් නම් තත්පර 15කින් නැවත උත්සාහ කරන්න.' });
     }
 
     // Wait until the socket is connected and ready (QR event fired)
@@ -291,7 +300,7 @@ app.get('/pair', async (req, res) => {
         return res.json({ code });
     } catch (e) {
         console.error('Pairing error:', e.message);
-        return res.json({ error: 'Pairing Code ලබාගැනීමේ දෝෂයක් (' + e.message + '). තත්පර 10කින් නැවත උත්සාහ කරන්න.' });
+        return res.json({ error: 'Pairing Code ලබාගැනීමේ දෝෂයක් (' + e.message + '). තත්පර 15කින් නැවත උත්සාහ කරන්න.' });
     }
 });
 
