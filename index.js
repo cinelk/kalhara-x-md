@@ -18,9 +18,10 @@ const path = require('path');
 const C = require('./lib/config');
 const U = require('./lib/utils');
 const S = require('./lib/settings');
-const { useAuthState } = require('./lib/authstore');
+const { useAuthState, lockSession, unlockSession } = require('./lib/authstore');
 const M = require('./lib/media');
 
+process.on('SIGTERM', async () => { try { await unlockSession(); } catch (_) {} process.exit(0); });
 process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e && e.message ? e.message : e));
 process.on('uncaughtException', (e) => console.error('uncaughtException:', e && e.message ? e.message : e));
 
@@ -145,6 +146,11 @@ async function startBot() {
     if (starting) return;
     starting = true;
     try {
+        if (!(await lockSession())) {
+            console.log('⏳ Another instance is using this WhatsApp session – waiting...');
+            starting = false;
+            return setTimeout(startBot, 10000);
+        }
         const { state, saveCreds, clear } = await useAuthState(authFolder);
         authClear = clear;
         let version;
