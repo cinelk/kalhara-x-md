@@ -4,7 +4,6 @@
  */
 const {
     default: makeWASocket,
-    useMultiFileAuthState,
     DisconnectReason,
     makeCacheableSignalKeyStore,
     fetchLatestBaileysVersion,
@@ -19,6 +18,7 @@ const path = require('path');
 const C = require('./lib/config');
 const U = require('./lib/utils');
 const S = require('./lib/settings');
+const { useAuthState } = require('./lib/authstore');
 const M = require('./lib/media');
 
 process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e && e.message ? e.message : e));
@@ -33,6 +33,7 @@ let sock = null;
 let starting = false;
 let currentQR = null;
 let lastPair = null;
+let authClear = async () => {};
 const seen = new Set();
 const replied = new Map(); // status-reply cooldown per contact
 
@@ -144,7 +145,8 @@ async function startBot() {
     if (starting) return;
     starting = true;
     try {
-        const { state, saveCreds } = await useMultiFileAuthState(authFolder);
+        const { state, saveCreds, clear } = await useAuthState(authFolder);
+        authClear = clear;
         let version;
         try { ({ version } = await fetchLatestBaileysVersion()); } catch (_) {}
 
@@ -188,7 +190,7 @@ async function startBot() {
                 currentQR = null;
                 lastPair = null;
                 if (statusCode === DisconnectReason.loggedOut) {
-                    try { fs.rmSync(authFolder, { recursive: true, force: true }); fs.mkdirSync(authFolder, { recursive: true }); } catch (_) {}
+                    try { await authClear(); } catch (_) {}
                 }
                 starting = false;
                 // 515 = restart required (normal right after a successful pair)
@@ -256,6 +258,10 @@ app.get('/health', (req, res) => res.send('OK'));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 app.listen(PORT, () => console.log(`\n🌐 [WEB] ${C.BOT_NAME} Web Server running on port ${PORT}`));
+
+// Keep the free Koyeb instance awake (traffic through its public URL stops "scale to zero")
+const PUB = process.env.PUBLIC_URL || (process.env.KOYEB_PUBLIC_DOMAIN ? 'https://' + process.env.KOYEB_PUBLIC_DOMAIN : '');
+if (PUB) setInterval(() => U.http.get(PUB + '/health', { timeout: 15000 }).catch(() => {}), 4 * 60 * 1000);
 
 loadCommands();
 startBot(); // start immediately – yt-dlp is prepared in the background
