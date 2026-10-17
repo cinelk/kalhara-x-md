@@ -10,7 +10,8 @@ const {
     fetchLatestBaileysVersion,
     normalizeMessageContent,
     getContentType,
-    downloadMediaMessage
+    downloadMediaMessage,
+    Browsers
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const express = require('express');
@@ -48,6 +49,7 @@ let sock = null;
 let starting = false;
 let currentQR = null;
 let YTDLP = 'yt-dlp';
+let lastPair = null;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -238,14 +240,16 @@ async function startBot() {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
             },
-            browser: [BOT_NAME, 'Chrome', '20.0.0'],
+            browser: Browsers.ubuntu('Chrome'),
             syncFullHistory: false,
             markOnlineOnConnect: true
         });
 
+        const me = sock;
         sock.ev.on('creds.update', saveCreds);
 
         sock.ev.on('connection.update', async (update) => {
+            if (sock !== me) return; // ignore stale sockets
             const { connection, lastDisconnect, qr } = update;
             if (qr) {
                 currentQR = qr;
@@ -272,11 +276,15 @@ async function startBot() {
                 } catch (e) {}
             } else if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
+                console.log('❌ Connection closed. Code:', statusCode, '|', lastDisconnect?.error?.message);
+                currentQR = null;
+                lastPair = null;
                 if (statusCode === DisconnectReason.loggedOut) {
-                    try { fs.rmSync(authFolder, { recursive: true, force: true }); } catch (_) {}
+                    try { fs.rmSync(authFolder, { recursive: true, force: true }); fs.mkdirSync(authFolder, { recursive: true }); } catch (_) {}
                 }
                 starting = false;
-                setTimeout(startBot, 3000);
+                // 515 = restart required (normal right after a successful pair)
+                setTimeout(startBot, statusCode === DisconnectReason.restartRequired ? 500 : 3000);
             }
         });
 
@@ -447,28 +455,32 @@ app.get('/qr-raw', (req, res) => {
 app.get('/pair', async (req, res) => {
     const phone = String(req.query.phone || '').replace(/[^0-9]/g, '');
     if (!phone) return res.json({ error: 'WhatsApp අංකය ඇතුළත් කර නැත!' });
+    if (phone.startsWith('0')) return res.json({ error: 'අංකය 0 න් පටන් ගන්න එපා. රට කේතය සමඟ ගහන්න (උදා: 94771234567).' });
+    if (phone.length < 10 || phone.length > 15) return res.json({ error: 'අංකය වැරදියි. රට කේතය සමඟ සම්පූර්ණ අංකය ගහන්න (උදා: 94771234567).' });
 
-    let retries = 10;
-    while (!sock && retries > 0) {
-        await sleep(1000);
-        retries--;
+    // Same number within 60s -> same code (a new code would invalidate the old one)
+    if (lastPair && lastPair.phone === phone && Date.now() - lastPair.at < 60000) {
+        return res.json({ code: lastPair.code });
     }
 
-    if (!sock) {
-        return res.json({ error: 'සර්වර් එක තවමත් සූදානම් වෙමින් පවතී. තත්පර 10කින් නැවත උත්සාහ කරන්න.' });
+    if (sock?.authState?.creds?.registered) {
+        return res.json({ error: 'දැනටමත් බොට් කනෙක්ට් කර ඇත!' });
+    }
+
+    // Wait until the socket is connected and ready (QR event fired)
+    for (let i = 0; i < 20 && !(sock && currentQR); i++) await sleep(1000);
+    if (!sock || !currentQR) {
+        return res.json({ error: 'සර්වර් එක තවමත් සූදානම් නැහැ. තත්පර 15කින් නැවත උත්සාහ කරන්න.' });
     }
 
     try {
-        if (sock.authState.creds.registered) {
-            return res.json({ error: 'දැනටමත් බොට් කනෙක්ට් කර ඇත!' });
-        }
-        await sleep(2000);
         let code = await sock.requestPairingCode(phone);
         code = code?.match(/.{1,4}/g)?.join('-') || code;
+        lastPair = { phone, code, at: Date.now() };
         return res.json({ code });
     } catch (e) {
         console.error('Pairing error:', e.message);
-        return res.json({ error: 'Pairing Code ලබාගැනීමේ දෝෂයක්. අංකය රටේ කේතය සමඟ නිවැරදිව ඇතුළත් කරන්න (උදා: 9477xxxxxxx).' });
+        return res.json({ error: 'Pairing Code ලබාගැනීමේ දෝෂයක් (' + e.message + '). තත්පර 10කින් නැවත උත්සාහ කරන්න.' });
     }
 });
 
