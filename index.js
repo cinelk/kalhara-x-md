@@ -304,6 +304,20 @@ app.get('/pair', async (req, res) => {
     }
 });
 
+app.get('/status', (req, res) => {
+    if (!process.env.RESET_KEY || req.query.key !== process.env.RESET_KEY) return res.status(403).send('forbidden');
+    res.json({
+        isOpen,
+        registered: !!sock?.authState?.creds?.registered,
+        user: sock?.user?.id || null,
+        hasQR: !!currentQR,
+        loggingOut,
+        starting,
+        storage: process.env.MONGODB_URI ? 'mongo' : 'files',
+        uptimeSec: Math.round(process.uptime())
+    });
+});
+
 app.get('/health', (req, res) => res.send('OK'));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
