@@ -56,7 +56,10 @@
         }
         #code-box h3 { font-size: 14px; color: #cbd5e1; margin-bottom: 8px; }
         #pairing-code { font-size: 26px; font-weight: 700; color: #f472b6; letter-spacing: 2px; word-break: break-all; }
+        #pairing-code.ready { cursor: pointer; user-select: all; }
+        #pairing-code.ready:hover { opacity: .85; }
         .hint { margin-top: 12px; font-size: 12px; color: #94a3b8; }
+        .err { color: #f87171; font-size: 13px; margin-top: 10px; }
         .footer { margin-top: 25px; font-size: 12px; color: #64748b; }
     </style>
 </head>
@@ -74,6 +77,8 @@
         <div id="code-box">
             <h3>YOUR PAIRING CODE:</h3>
             <div id="pairing-code">------</div>
+            <div class="hint" id="copy-hint" style="display:none">👆 Code එක touch කරන්න, copy වෙනවා</div>
+            <div class="err" id="err"></div>
             <div class="hint">WhatsApp → Linked Devices → Link with phone number → මේ code එක විනාඩියක් ඇතුළත ගහන්න</div>
         </div>
 
@@ -81,16 +86,30 @@
     </div>
 
     <script>
+        const codeDisplay = document.getElementById('pairing-code');
+        const errEl = document.getElementById('err');
+        const copyHint = document.getElementById('copy-hint');
+        const codeBox = document.getElementById('code-box');
+        const btn = document.getElementById('btn');
+
+        function showError(msg) {
+            codeBox.style.display = 'block';
+            codeDisplay.classList.remove('ready');
+            codeDisplay.innerText = '------';
+            copyHint.style.display = 'none';
+            errEl.textContent = msg;
+        }
+
         async function getPairCode() {
             const phone = document.getElementById('phone').value.trim();
-            const btn = document.getElementById('btn');
-            const codeBox = document.getElementById('code-box');
-            const codeDisplay = document.getElementById('pairing-code');
+            errEl.textContent = '';
 
-            if (!phone) { alert('Please enter your WhatsApp number!'); return; }
-            if (phone.replace(/\D/g,'').startsWith('0')) { alert('Do not start with 0. Use country code, e.g. 94771234567'); return; }
+            if (!phone) return showError('WhatsApp අංකය ඇතුළත් කරන්න!');
+            if (phone.replace(/\D/g, '').startsWith('0')) return showError('0 න් පටන් ගන්න එපා. රට කේතය සමඟ ගහන්න (94771234567)');
 
             btn.disabled = true;
+            codeDisplay.classList.remove('ready');
+            copyHint.style.display = 'none';
             codeDisplay.innerText = 'Generating...';
             codeBox.style.display = 'block';
 
@@ -99,16 +118,31 @@
                 const data = await res.json();
                 if (data.code) {
                     codeDisplay.innerText = data.code;
+                    codeDisplay.dataset.code = data.code;
+                    codeDisplay.classList.add('ready');
+                    copyHint.style.display = 'block';
                 } else {
-                    codeDisplay.innerText = 'ERROR';
-                    alert(data.error || 'Failed to generate code.');
+                    showError(data.error || 'Code එක generate කරන්න බැරි වුණා.');
                 }
             } catch (err) {
-                codeDisplay.innerText = 'ERROR';
-                alert('Server connection error!');
+                showError('Server connection error!');
             }
             btn.disabled = false;
         }
+
+        codeDisplay.addEventListener('click', async () => {
+            const text = codeDisplay.dataset.code;
+            if (!codeDisplay.classList.contains('ready') || !text) return;
+            try {
+                await navigator.clipboard.writeText(text);
+            } catch {
+                const t = document.createElement('textarea');
+                t.value = text; document.body.appendChild(t); t.select();
+                document.execCommand('copy'); t.remove();
+            }
+            codeDisplay.innerText = 'Copied ✓';
+            setTimeout(() => { codeDisplay.innerText = text; }, 1200);
+        });
     </script>
 </body>
 </html>
