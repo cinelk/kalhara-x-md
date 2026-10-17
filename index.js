@@ -35,6 +35,8 @@ let starting = false;
 let currentQR = null;
 let lastPair = null;
 let authClear = async () => {};
+let isOpen = false;       // true only while WhatsApp connection is really open
+let loggingOut = false;   // true while a logout/unlink reset is in progress
 const seen = new Set();
 const replied = new Map(); // status-reply cooldown per contact
 
@@ -141,9 +143,27 @@ function connectedText() {
     return `╭──────⟡ ⚡ KALHARA X MD ⚡ ⟡──────╮\n│ ✅ Connected • සම්බන්ධ විය\n╰───────────────────────╯\n\n👋 Hi ${S.get('owner_name')}! • ආයුබෝවන්!\n🚀 Your bot is online & ready\n    ඔබේ බොට් දැන් ක්‍රියාත්මකයි\n\n┏━━ 📋 BOT DETAILS ━━┓\n┃ 🏷️ Name     : ${S.get('bot_name')}\n┃ 👑 Owner    : ${S.get('owner_name')}\n┃ 📞 Number   : +${n}\n┃ 🔣 Prefix   : ${C.PREFIX}\n┃ 🧩 Commands : ${commandList.length}\n┃ 🕒 Time     : ${t}\n┃ 🟢 Status   : Online\n┗━━━━━━━━━━━━━━━━━━┛\n\n📜 ${C.PREFIX}menu • මෙනුව බලන්න\n\n🔗 Get your own bot — connect via our site 👇\n${S.get('site_url')}`;
 }
 
+// ───────── Logout / unlink handler ─────────
+// Phone eken unlink karama: old socket nawattanawa, session clear karanawa, fresh socket ekak hadanawa
+async function resetSession() {
+    if (loggingOut) return;
+    loggingOut = true;
+    const old = sock;
+    sock = null; // stale-socket guard: old socket events ignore wenawa
+    try { old?.end(undefined); } catch (_) {}
+    try { await authClear(); } catch (e) { console.error('authClear error:', e.message); }
+    currentQR = null;
+    lastPair = null;
+    isOpen = false;
+    starting = false;
+    loggingOut = false;
+    console.log('🧹 Session cleared after logout/unlink – starting fresh socket');
+    setTimeout(startBot, 500);
+}
+
 // ───────── WhatsApp connection ─────────
 async function startBot() {
-    if (starting) return;
+    if (starting || loggingOut) return;
     starting = true;
     try {
         if (!(await lockSession())) {
@@ -173,7 +193,12 @@ async function startBot() {
             cachedGroupMetadata: async (jid) => { const h = U.gcache.get(jid); return h ? h.m : undefined; }
         });
         const me = sock;
-        sock.ev.on('creds.update', saveCreds);
+
+        // logout unata passe old creds aye save wenna denne na
+        sock.ev.on('creds.update', (...a) => {
+            if (loggingOut || sock !== me) return;
+            return saveCreds(...a);
+        });
         sock.ev.on('groups.update', (u) => u.forEach((g) => g.id && U.gcache.delete(g.id)));
         sock.ev.on('group-participants.update', (g) => U.gcache.delete(g.id));
 
@@ -182,6 +207,7 @@ async function startBot() {
             const { connection, lastDisconnect, qr } = update;
             if (qr) currentQR = qr;
             if (connection === 'open') {
+                isOpen = true;
                 currentQR = null;
                 console.log('\n🎉 [SUCCESS] Bot Connected Successfully!\n');
                 M.preload();
@@ -191,13 +217,14 @@ async function startBot() {
                     } catch (_) {}
                 }
             } else if (connection === 'close') {
+                isOpen = false;
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 console.log('❌ Connection closed. Code:', statusCode, '|', lastDisconnect?.error?.message);
+                if (statusCode === DisconnectReason.loggedOut) {
+                    return resetSession(); // clear session + fresh socket
+                }
                 currentQR = null;
                 lastPair = null;
-                if (statusCode === DisconnectReason.loggedOut) {
-                    try { await authClear(); } catch (_) {}
-                }
                 starting = false;
                 // 515 = restart required (normal right after a successful pair)
                 setTimeout(startBot, statusCode === DisconnectReason.restartRequired ? 500 : 3000);
@@ -237,13 +264,21 @@ app.get('/pair', async (req, res) => {
     if (phone.startsWith('0')) return res.json({ error: 'අංකය 0 න් පටන් ගන්න එපා. රට කේතය සමඟ ගහන්න (උදා: 94771234567).' });
     if (phone.length < 10 || phone.length > 15) return res.json({ error: 'අංකය වැරදියි. රට කේතය සමඟ සම්පූර්ණ අංකය ගහන්න (උදා: 94771234567).' });
 
+    // Bot really connected right now
+    if (isOpen) {
+        return res.json({ error: 'දැනටමත් බොට් කනෙක්ට් කර ඇත!' });
+    }
+
     // Same number within 60s -> same code (a new code would invalidate the old one)
     if (lastPair && lastPair.phone === phone && Date.now() - lastPair.at < 60000) {
         return res.json({ code: lastPair.code });
     }
+
+    // Old registered session still reconnecting (or phone unlink not yet detected)
     if (sock?.authState?.creds?.registered) {
-        return res.json({ error: 'දැනටමත් බොට් කනෙක්ට් කර ඇත!' });
+        return res.json({ error: 'බොට් සම්බන්ධ වෙමින් පවතී. Phone එකෙන් unlink කළා නම් තත්පර 15කින් නැවත උත්සාහ කරන්න.' });
     }
+
     // Wait until the socket is connected and ready (QR event fired)
     for (let i = 0; i < 20 && !(sock && currentQR); i++) await U.sleep(1000);
     if (!sock || !currentQR) {
